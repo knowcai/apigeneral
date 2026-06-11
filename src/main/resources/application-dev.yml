@@ -1,0 +1,15 @@
+# 开发环境：使用嵌入式 PostgreSQL（首次启动会自动下载 PG 二进制，约 30MB）
+server:
+  port: 8088
+
+spring:
+  datasource:
+    # 由 EmbeddedPostgresConfig 提供真实 DataSource，此处仅占位
+    url: jdbc:postgresql://localhost:15432/apigateway
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+logging:
+  level:
+    com.apigateway: DEBUG

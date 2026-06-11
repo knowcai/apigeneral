@@ -1,0 +1,7 @@
+# 生产/联调：连接外部 PostgreSQL（自行修改）
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/apigateway
+    username: gateway
+    password: gateway
+    driver-class-name: org.postgresql.Driver

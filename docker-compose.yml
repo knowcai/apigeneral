@@ -1,0 +1,17 @@
+# 可选：有 Docker 时用外部 PostgreSQL 替代嵌入式 PG
+# 启动: docker compose up -d
+# 然后: mvn spring-boot:run -Dspring-boot.run.profiles=prod
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: apigateway
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
