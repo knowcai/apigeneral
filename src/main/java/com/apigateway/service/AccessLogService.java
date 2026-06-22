@@ -2,10 +2,13 @@ package com.apigateway.service;
 
 import com.apigateway.entity.ApiAccessLog;
 import com.apigateway.repository.ApiAccessLogRepository;
+import com.apigateway.security.AuthzService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +21,7 @@ public class AccessLogService {
 
     private final ApiAccessLogRepository repository;
     private final ObjectMapper objectMapper;
+    private final AuthzService authzService;
 
     @Async
     public void logAsync(String apiCode, Integer version, String clientIp, String consumerName,
@@ -40,10 +44,15 @@ public class AccessLogService {
     }
 
     public Page<ApiAccessLog> list(String apiCode, Pageable pageable) {
+        authzService.requireAuthenticated();
+        Pageable sorted = PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
         if (apiCode == null || apiCode.isBlank()) {
-            return repository.findAll(pageable);
+            return repository.findAll(sorted);
         }
-        return repository.findByApiCodeContainingIgnoreCase(apiCode, pageable);
+        return repository.findByApiCodeContainingIgnoreCase(apiCode, sorted);
     }
 
     public long estimateBytes(Object data) {

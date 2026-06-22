@@ -34,19 +34,22 @@ public class GatewayProtectionService {
         }
     }
 
+    /** 检查该 apiCode 是否处于 API 级熔断 OPEN 状态；若已熔断则抛出 503 并返回配置的 fallback。 */
     public Object checkCircuitOrFallback(String apiCode) {
         GatewayPolicy policy = policyService.get();
         if (circuitBreakerService.allowRequest(apiCode, policy)) {
             return null;
         }
         Object fallback = circuitBreakerService.parseFallback(policy);
-        throw new BusinessException(503, "服务熔断中", fallback);
+        throw new BusinessException(503, "该 API 已熔断", fallback);
     }
 
+    /** 该 API 的 SQL 执行成功，计入其 1 分钟滚动窗口。 */
     public void onSuccess(String apiCode) {
         circuitBreakerService.recordSuccess(apiCode);
     }
 
+    /** 该 API 的 SQL 执行失败，计入其 1 分钟滚动窗口并可能触发该 API 熔断。 */
     public void onFailure(String apiCode) {
         circuitBreakerService.recordFailure(apiCode, policyService.get());
     }

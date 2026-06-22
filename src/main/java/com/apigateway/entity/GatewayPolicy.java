@@ -46,7 +46,7 @@ public class GatewayPolicy {
     private Integer circuitWaitSec = 30;
 
     @Column(name = "circuit_fallback", nullable = false, columnDefinition = "TEXT")
-    private String circuitFallback = "{\"code\":503,\"message\":\"服务熔断中，请稍后重试\",\"data\":null}";
+    private String circuitFallback = "{\"code\":503,\"message\":\"该 API 已熔断，请稍后重试\",\"data\":null}";
 
     @Column(name = "retry_enabled", nullable = false)
     private Boolean retryEnabled = true;

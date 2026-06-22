@@ -6,11 +6,7 @@ import com.apigateway.entity.ResponseMode;
 import com.apigateway.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.*;
 
@@ -21,92 +17,61 @@ public class SqlExecutionService {
     private final ConnectionPoolManager connectionPoolManager;
 
     public QueryResult execute(Datasource datasource, String sqlTemplate, Map<String, Object> params,
-                               ResponseMode mode, Map<String, Object> responseConfig, int page, int pageSize,
-                               int chunkIndex) {
+                               Map<String, Object> responseConfig, int page, int pageSize) {
         JdbcUrlBuilder.assertReadOnly(sqlTemplate);
         SqlTemplateEngine.ParsedSql parsed = SqlTemplateEngine.parse(sqlTemplate, params);
         List<Object> values = SqlTemplateEngine.bindValues(parsed, params);
 
-        int effectivePageSize = resolvePageSize(mode, responseConfig, pageSize);
-        int offset = mode == ResponseMode.CHUNK ? chunkIndex * effectivePageSize : Math.max(0, page - 1) * effectivePageSize;
-        assertWithinLimits(mode, responseConfig, offset, effectivePageSize);
+        int effectivePageSize = Math.min(pageSize, intConfig(responseConfig, "maxPageSize", 500));
+        int offset = Math.max(0, page - 1) * effectivePageSize;
+        assertWithinLimits(responseConfig, offset);
 
         String pagedSql = wrapPagedSql(datasource, parsed.sql(), offset, effectivePageSize);
+        int timeoutSec = intConfig(responseConfig, "timeoutSec", 60);
 
         try (Connection conn = connectionPoolManager.getConnection(datasource.getId());
              PreparedStatement ps = conn.prepareStatement(pagedSql)) {
+            if (timeoutSec > 0) {
+                ps.setQueryTimeout(timeoutSec);
+            }
             bind(ps, values);
             try (ResultSet rs = ps.executeQuery()) {
                 List<Map<String, Object>> rows = mapRows(rs);
                 boolean hasMore = rows.size() >= effectivePageSize;
                 return QueryResult.builder()
                         .rows(rows)
-                        .page(mode == ResponseMode.PAGE ? page : chunkIndex + 1)
+                        .page(page)
                         .pageSize(effectivePageSize)
                         .hasMore(hasMore)
-                        .chunkIndex(chunkIndex)
-                        .chunkToken(hasMore ? UUID.randomUUID().toString() : null)
                         .build();
             }
         } catch (SQLException e) {
+            if (isQueryTimeout(e)) {
+                throw new BusinessException("查询超时，超过 " + timeoutSec + " 秒限制");
+            }
             throw new BusinessException("SQL 执行失败: " + e.getMessage());
         }
     }
 
-    public StreamingResponseBody stream(Datasource datasource, String sqlTemplate, Map<String, Object> params,
-                                        Map<String, Object> responseConfig) {
-        JdbcUrlBuilder.assertReadOnly(sqlTemplate);
-        SqlTemplateEngine.ParsedSql parsed = SqlTemplateEngine.parse(sqlTemplate, params);
-        List<Object> values = SqlTemplateEngine.bindValues(parsed, params);
-        int batchSize = intConfig(responseConfig, "streamBatchSize", 500);
-        int maxStreamRows = intConfig(responseConfig, "maxStreamRows", 100000);
-        long maxDurationMs = intConfig(responseConfig, "maxStreamDurationSec", 300) * 1000L;
-
-        return outputStream -> {
-            long startMs = System.currentTimeMillis();
-            try (Connection conn = connectionPoolManager.getConnection(datasource.getId());
-                 PreparedStatement ps = conn.prepareStatement(parsed.sql())) {
-                bind(ps, values);
-                try (ResultSet rs = ps.executeQuery();
-                     PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8))) {
-                    ResultSetMetaData meta = rs.getMetaData();
-                    int count = 0;
-                    while (rs.next()) {
-                        if (count >= maxStreamRows) {
-                            break;
-                        }
-                        if (System.currentTimeMillis() - startMs > maxDurationMs) {
-                            break;
-                        }
-                        writer.println(toJsonLine(rs, meta));
-                        count++;
-                        if (count % batchSize == 0) {
-                            writer.flush();
-                        }
-                    }
-                    writer.flush();
-                }
-            } catch (SQLException e) {
-                throw new BusinessException("流式查询失败: " + e.getMessage());
+    private boolean isQueryTimeout(SQLException e) {
+        Throwable cur = e;
+        while (cur != null) {
+            if (cur instanceof SQLTimeoutException) {
+                return true;
             }
-        };
+            String msg = cur.getMessage();
+            if (msg != null && (msg.contains("timeout") || msg.contains("Timeout") || msg.contains("timed out"))) {
+                return true;
+            }
+            cur = cur.getCause();
+        }
+        return false;
     }
 
-    private void assertWithinLimits(ResponseMode mode, Map<String, Object> config, int offset, int pageSize) {
-        if (mode == ResponseMode.PAGE) {
-            int maxOffset = intConfig(config, "maxOffset", 100000);
-            if (offset >= maxOffset) {
-                throw new BusinessException("已超过最大偏移量 " + maxOffset + "，请缩小分页或使用分块/流式模式");
-            }
-        }
-        if (mode == ResponseMode.CHUNK) {
-            int maxTotalRows = intConfig(config, "maxTotalRows", 500000);
-            if (offset >= maxTotalRows) {
-                throw new BusinessException("已超过分批累计上限 " + maxTotalRows + " 行");
-            }
-            if (offset + pageSize > maxTotalRows) {
-                throw new BusinessException("本批将超出累计上限 " + maxTotalRows + " 行，请减小每批条数");
-            }
+    private void assertWithinLimits(Map<String, Object> config, int offset) {
+        int maxOffset = intConfig(config, "maxOffset", 100000);
+        if (offset >= maxOffset) {
+            throw new BusinessException("已超过最大偏移量 " + maxOffset + "，请缩小分页");
         }
     }
 
@@ -137,17 +102,6 @@ public class SqlExecutionService {
         }
     }
 
-    private int resolvePageSize(ResponseMode mode, Map<String, Object> config, int requested) {
-        int max = intConfig(config, "maxPageSize", 500);
-        int defaultSize = intConfig(config, "defaultPageSize", 20);
-        if (mode == ResponseMode.CHUNK) {
-            defaultSize = intConfig(config, "chunkSize", 1000);
-            max = intConfig(config, "maxChunkSize", 10000);
-        }
-        int size = requested > 0 ? requested : defaultSize;
-        return Math.min(size, max);
-    }
-
     private int intConfig(Map<String, Object> config, String key, int defaultValue) {
         if (config == null) {
             return defaultValue;
@@ -157,26 +111,5 @@ public class SqlExecutionService {
             return n.intValue();
         }
         return defaultValue;
-    }
-
-    private String toJsonLine(ResultSet rs, ResultSetMetaData meta) throws SQLException {
-        StringBuilder sb = new StringBuilder("{");
-        int cols = meta.getColumnCount();
-        for (int i = 1; i <= cols; i++) {
-            if (i > 1) {
-                sb.append(',');
-            }
-            sb.append('"').append(meta.getColumnLabel(i)).append("\":");
-            Object val = rs.getObject(i);
-            if (val == null) {
-                sb.append("null");
-            } else if (val instanceof Number) {
-                sb.append(val);
-            } else {
-                sb.append('"').append(String.valueOf(val).replace("\"", "\\\"")).append('"');
-            }
-        }
-        sb.append('}');
-        return sb.toString();
     }
 }

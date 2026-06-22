@@ -17,9 +17,22 @@
         </el-menu-item>
         <el-menu-item index="/policy">
           <el-icon><Setting /></el-icon>
-          <span>限流熔断</span>
+          <span>API 限流熔断</span>
+        </el-menu-item>
+        <el-menu-item index="/audit">
+          <el-icon><List /></el-icon>
+          <span>操作审计</span>
+        </el-menu-item>
+        <el-menu-item v-if="auth.canManageUsers.value" index="/users">
+          <el-icon><User /></el-icon>
+          <span>用户管理</span>
         </el-menu-item>
       </el-menu>
+      <div class="user-bar">
+        <div class="user-name">{{ auth.state.user?.displayName || auth.state.user?.username }}</div>
+        <div class="user-role">{{ roleLabel }}</div>
+        <el-button link class="logout" @click="logout">退出</el-button>
+      </div>
     </el-aside>
     <el-main class="main">
       <router-view />
@@ -28,8 +41,25 @@
 </template>
 
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { auth } from '../stores/auth'
+
 const route = useRoute()
+const router = useRouter()
+
+const roleLabel = computed(() => {
+  const r = auth.state.user?.role
+  if (r === 'SUPER_ADMIN') return '超级管理员'
+  if (r === 'API_EDITOR') return 'API 编辑'
+  if (r === 'API_VIEWER') return 'API 只读'
+  return ''
+})
+
+function logout() {
+  auth.clear()
+  router.replace('/login')
+}
 </script>
 
 <style scoped>
@@ -42,6 +72,8 @@ const route = useRoute()
   background: #000;
   color: #fff;
   border-right: 1px solid #000;
+  display: flex;
+  flex-direction: column;
 }
 
 .logo {
@@ -57,7 +89,18 @@ const route = useRoute()
 .side-menu {
   border-right: none;
   background: #000;
+  flex: 1;
 }
+
+.user-bar {
+  padding: 16px 20px;
+  border-top: 1px solid #333;
+  font-size: 12px;
+  color: #a3a3a3;
+}
+
+.user-name { color: #fff; font-weight: 600; margin-bottom: 4px; }
+.logout { color: #a3a3a3 !important; padding: 0; margin-top: 8px; }
 
 :deep(.el-menu-item) {
   color: #a3a3a3;

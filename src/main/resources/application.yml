@@ -20,3 +20,8 @@ server:
 gateway:
   admin:
     enabled: true
+  auth:
+    jwt-secret: "sql-api-gateway-dev-secret-key-change-in-production-32bytes"
+    jwt-expiration-hours: 24
+    default-admin-username: admin
+    default-admin-password: admin123

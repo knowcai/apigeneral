@@ -1,0 +1,7 @@
+{
+  "apiCode": "circuit-test",
+  "name": "熔断测试API",
+  "theme": "test",
+  "description": "故意失败用于验证熔断",
+  "updatedBy": "admin"
+}

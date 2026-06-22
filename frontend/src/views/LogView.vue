@@ -7,7 +7,9 @@
     </div>
 
     <el-table :data="logs" stripe>
-      <el-table-column prop="createdAt" label="时间" width="180" />
+      <el-table-column label="时间" width="180">
+        <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+      </el-table-column>
       <el-table-column prop="apiCode" label="API" width="140" />
       <el-table-column prop="apiVersion" label="版本" width="70" />
       <el-table-column prop="consumerName" label="调用方" width="120" />
@@ -15,7 +17,9 @@
       <el-table-column prop="responseMode" label="模式" width="90" />
       <el-table-column prop="responseRows" label="行数" width="80" />
       <el-table-column prop="responseBytes" label="字节" width="90" />
-      <el-table-column prop="durationMs" label="耗时ms" width="90" />
+      <el-table-column label="耗时(s)" width="90">
+        <template #default="{ row }">{{ formatDurationSec(row.durationMs) }}</template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" width="90" />
       <el-table-column prop="errorMessage" label="错误" min-width="160" />
     </el-table>
@@ -41,6 +45,21 @@ const apiCode = ref('')
 const page = ref(1)
 const size = 20
 const total = ref(0)
+
+function formatTime(value: string | null | undefined) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) {
+    return value.replace('T', ' ').replace(/\.\d+/, '').slice(0, 19)
+  }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function formatDurationSec(ms: number | null | undefined) {
+  if (ms == null) return ''
+  return String(Math.round(ms / 1000))
+}
 
 async function load() {
   const data = await http.get<{ content: any[]; totalElements: number }>('/admin/logs', {

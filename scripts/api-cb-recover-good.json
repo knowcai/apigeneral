@@ -1,0 +1,10 @@
+{
+  "datasourceId": 1,
+  "sqlTemplate": "SELECT 1 AS ok WHERE :id = 1",
+  "responseMode": "PAGE",
+  "responseConfig": {
+    "maxPageSize": 100,
+    "timeoutSec": 10
+  },
+  "updatedBy": "admin"
+}

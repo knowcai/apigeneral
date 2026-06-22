@@ -1,0 +1,103 @@
+<template>
+  <div>
+    <div class="toolbar">
+      <h2>用户管理</h2>
+      <el-button type="primary" @click="openCreate">新建用户</el-button>
+    </div>
+
+    <el-table :data="users" stripe>
+      <el-table-column prop="username" label="用户名" />
+      <el-table-column prop="displayName" label="显示名" />
+      <el-table-column prop="role" label="角色" width="140">
+        <template #default="{ row }">{{ roleLabel(row.role) }}</template>
+      </el-table-column>
+      <el-table-column prop="enabled" label="状态" width="90">
+        <template #default="{ row }">{{ row.enabled ? '启用' : '禁用' }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="180">
+        <template #default="{ row }">
+          <el-button link @click="openEdit(row)">编辑</el-button>
+          <el-button link type="danger" :disabled="row.role === 'SUPER_ADMIN'" @click="remove(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-dialog v-model="visible" :title="form.id ? '编辑用户' : '新建用户'" width="480px">
+      <el-form :model="form" label-width="90px">
+        <el-form-item label="用户名"><el-input v-model="form.username" :disabled="!!form.id" /></el-form-item>
+        <el-form-item label="显示名"><el-input v-model="form.displayName" /></el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="form.role" style="width: 100%">
+            <el-option label="超级管理员" value="SUPER_ADMIN" :disabled="hasSuperAdmin && form.role !== 'SUPER_ADMIN'" />
+            <el-option label="API 编辑" value="API_EDITOR" />
+            <el-option label="API 只读" value="API_VIEWER" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="form.password" type="password" show-password :placeholder="form.id ? '留空不修改' : '至少 6 位'" />
+        </el-form-item>
+        <el-form-item label="启用"><el-switch v-model="form.enabled" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="visible = false">取消</el-button>
+        <el-button type="primary" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import http from '../api/http'
+import type { UserRole } from '../stores/auth'
+
+const users = ref<any[]>([])
+const visible = ref(false)
+const form = reactive<any>({ username: '', displayName: '', role: 'API_EDITOR', password: '', enabled: true })
+
+const hasSuperAdmin = computed(() => users.value.some(u => u.role === 'SUPER_ADMIN'))
+
+function roleLabel(role: UserRole) {
+  return { SUPER_ADMIN: '超级管理员', API_EDITOR: 'API 编辑', API_VIEWER: 'API 只读' }[role] || role
+}
+
+async function load() {
+  users.value = await http.get('/admin/users')
+}
+
+function openCreate() {
+  Object.assign(form, { id: undefined, username: '', displayName: '', role: 'API_EDITOR', password: '', enabled: true })
+  visible.value = true
+}
+
+function openEdit(row: any) {
+  Object.assign(form, { ...row, password: '' })
+  visible.value = true
+}
+
+async function save() {
+  const payload = { username: form.username, displayName: form.displayName, role: form.role, enabled: form.enabled, password: form.password || undefined }
+  if (form.id) {
+    await http.put(`/admin/users/${form.id}`, payload)
+  } else {
+    await http.post('/admin/users', payload)
+  }
+  visible.value = false
+  await load()
+  ElMessage.success('保存成功')
+}
+
+async function remove(row: any) {
+  await ElMessageBox.confirm(`删除用户 ${row.username}？`, '确认')
+  await http.delete(`/admin/users/${row.id}`)
+  await load()
+  ElMessage.success('已删除')
+}
+
+onMounted(load)
+</script>
+
+<style scoped>
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+</style>

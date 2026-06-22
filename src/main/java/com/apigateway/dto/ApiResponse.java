@@ -20,4 +20,8 @@ public class ApiResponse<T> {
     public static <T> ApiResponse<T> fail(String message) {
         return new ApiResponse<>(-1, message, null);
     }
+
+    public static <T> ApiResponse<T> fail(int code, String message) {
+        return new ApiResponse<>(code, message, null);
+    }
 }

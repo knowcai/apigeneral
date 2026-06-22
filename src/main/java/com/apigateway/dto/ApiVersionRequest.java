@@ -16,7 +16,6 @@ public class ApiVersionRequest {
     @NotBlank
     private String sqlTemplate;
 
-    private Map<String, Object> paramSchema;
     private ResponseMode responseMode = ResponseMode.PAGE;
     private Map<String, Object> responseConfig;
     private String createdBy;

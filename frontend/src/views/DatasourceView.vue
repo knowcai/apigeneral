@@ -2,7 +2,8 @@
   <div>
     <div class="toolbar">
       <h2>连接串管理</h2>
-      <el-button type="primary" @click="openCreate">新建连接</el-button>
+      <el-button v-if="auth.canEditDatasource.value" type="primary" @click="openCreate">新建连接</el-button>
+      <el-tag v-else type="info">只读（仅超级管理员可修改）</el-tag>
     </div>
 
     <el-table :data="list" stripe>
@@ -15,15 +16,18 @@
       <el-table-column prop="status" label="状态" width="90" />
       <el-table-column label="操作" width="220">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link @click="testConn(row)">测试</el-button>
-          <el-button link type="danger" @click="remove(row)">删除</el-button>
+          <template v-if="auth.canEditDatasource.value">
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link @click="testConn(row)">测试</el-button>
+            <el-button link type="danger" @click="remove(row)">删除</el-button>
+          </template>
+          <el-button v-else link @click="openEdit(row)">查看</el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="visible" :title="form.id ? '编辑连接' : '新建连接'" width="680px">
-      <el-form :model="form" label-width="130px">
+    <el-dialog v-model="visible" :title="form.id ? (auth.canEditDatasource.value ? '编辑连接' : '查看连接') : '新建连接'" width="680px">
+      <el-form :model="form" label-width="130px" :disabled="!auth.canEditDatasource.value && !!form.id">
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="类型">
           <el-select v-model="form.type" @change="loadTemplate">
@@ -79,6 +83,7 @@
       </el-form>
       <template #footer>
         <el-button @click="visible = false">取消</el-button>
+        <el-button :loading="testing" @click="testFormConn">测试连接</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
@@ -89,6 +94,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+import { auth } from '../stores/auth'
 
 interface Datasource {
   id?: number
@@ -118,6 +124,7 @@ interface ParamForm {
 
 const list = ref<Datasource[]>([])
 const visible = ref(false)
+const testing = ref(false)
 const form = reactive<Datasource>({
   name: '', type: 'DORIS', host: '127.0.0.1', port: 9030, databaseName: '', readonly: true, env: 'dev'
 })
@@ -202,9 +209,31 @@ async function save() {
 async function testConn(row: Datasource) {
   try {
     await http.post(`/admin/datasources/${row.id}/test`)
-    ElMessage.success('连接成功')
+    ElMessage.success('连接成功（SELECT 1）')
   } catch (e: any) {
     ElMessage.error(e.message)
+  }
+}
+
+async function testFormConn() {
+  if (!form.host?.trim()) {
+    ElMessage.warning('请填写 Host')
+    return
+  }
+  if (!form.databaseName?.trim()) {
+    ElMessage.warning('请填写数据库')
+    return
+  }
+  testing.value = true
+  try {
+    const payload = { ...form, defaultParams: buildDefaultParams() }
+    const url = form.id ? `/admin/datasources/test?id=${form.id}` : '/admin/datasources/test'
+    await http.post(url, payload)
+    ElMessage.success('连接成功（SELECT 1）')
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  } finally {
+    testing.value = false
   }
 }
 

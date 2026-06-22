@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,11 +34,42 @@ public class ConnectionPoolManager {
     }
 
     public boolean testConnection(Datasource ds) {
-        try (Connection conn = createPool(ds).getConnection()) {
-            return conn.isValid(3);
-        } catch (SQLException e) {
-            throw new BusinessException("连接测试失败: " + e.getMessage());
+        HikariDataSource pool = null;
+        try {
+            pool = createPool(ds);
+            try (Connection conn = pool.getConnection();
+                 PreparedStatement ps = conn.prepareStatement("SELECT 1");
+                 ResultSet rs = ps.executeQuery()) {
+                if (!rs.next() || rs.getInt(1) != 1) {
+                    throw new BusinessException("连接测试失败: SELECT 1 无有效结果");
+                }
+                return true;
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new BusinessException("连接测试失败: " + rootMessage(e));
+        } finally {
+            if (pool != null) {
+                try {
+                    pool.close();
+                } catch (Exception ignored) {
+                    // ignore
+                }
+            }
         }
+    }
+
+    private static String rootMessage(Throwable e) {
+        Throwable cur = e;
+        String msg = e.getMessage();
+        while (cur.getCause() != null) {
+            cur = cur.getCause();
+            if (cur.getMessage() != null && !cur.getMessage().isBlank()) {
+                msg = cur.getMessage();
+            }
+        }
+        return msg != null ? msg : e.getClass().getSimpleName();
     }
 
     private HikariDataSource poolFor(Long datasourceId) {
@@ -57,7 +90,8 @@ public class ConnectionPoolManager {
         config.setMaximumPoolSize(intParam(params, "pool.maxActive", 10));
         config.setMinimumIdle(intParam(params, "pool.minIdle", 2));
         config.setConnectionTimeout(longParam(params, "connectTimeoutMs", 5000L));
-        config.setPoolName("ds-" + ds.getId());
+        String poolName = ds.getId() != null ? "ds-" + ds.getId() : "ds-test-" + System.nanoTime();
+        config.setPoolName(poolName);
         return new HikariDataSource(config);
     }
 

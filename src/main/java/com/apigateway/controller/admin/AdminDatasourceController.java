@@ -53,4 +53,10 @@ public class AdminDatasourceController {
     public ApiResponse<Boolean> test(@PathVariable Long id) {
         return ApiResponse.ok(datasourceService.test(id));
     }
+
+    @PostMapping("/test")
+    public ApiResponse<Boolean> testConnection(@RequestBody DatasourceRequest req,
+                                               @RequestParam(required = false) Long id) {
+        return ApiResponse.ok(datasourceService.test(req, id));
+    }
 }

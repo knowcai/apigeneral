@@ -19,6 +19,4 @@ public class QueryResult {
     private int page;
     private int pageSize;
     private boolean hasMore;
-    private String chunkToken;
-    private int chunkIndex;
 }

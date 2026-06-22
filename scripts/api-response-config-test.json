@@ -1,0 +1,12 @@
+{
+  "datasourceId": 1,
+  "sqlTemplate": "SELECT sleep(3) AS ok WHERE :id = 1",
+  "responseMode": "PAGE",
+  "responseConfig": {
+    "maxPageSize": 10,
+    "maxOffset": 50,
+    "timeoutSec": 1,
+    "ipWhitelist": []
+  },
+  "updatedBy": "admin"
+}

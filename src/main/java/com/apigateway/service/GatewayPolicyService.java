@@ -3,6 +3,7 @@ package com.apigateway.service;
 import com.apigateway.dto.GatewayPolicyRequest;
 import com.apigateway.entity.GatewayPolicy;
 import com.apigateway.repository.GatewayPolicyRepository;
+import com.apigateway.security.AuthzService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,13 +13,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class GatewayPolicyService {
 
     private final GatewayPolicyRepository repository;
+    private final AuthzService authzService;
+    private final AuditLogService auditLogService;
 
+    /** 运行时策略读取（限流/熔断），公开数据 API 也会调用，不做登录校验。 */
     public GatewayPolicy get() {
         return repository.findById(1L).orElseGet(this::initDefault);
     }
 
     @Transactional
     public GatewayPolicy update(GatewayPolicyRequest req) {
+        authzService.requireSuperAdmin();
         GatewayPolicy policy = get();
         policy.setGlobalQpsEnabled(req.getGlobalQpsEnabled());
         policy.setGlobalQps(req.getGlobalQps());
@@ -36,7 +41,9 @@ public class GatewayPolicyService {
         policy.setRetryEnabled(req.getRetryEnabled());
         policy.setRetryMaxAttempts(req.getRetryMaxAttempts());
         policy.setRetryIntervalMs(req.getRetryIntervalMs());
-        return repository.save(policy);
+        GatewayPolicy saved = repository.save(policy);
+        auditLogService.log("UPDATE", "GATEWAY_POLICY", "1", "gateway-policy", saved);
+        return saved;
     }
 
     private GatewayPolicy initDefault() {

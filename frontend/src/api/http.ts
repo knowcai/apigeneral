@@ -1,6 +1,16 @@
 import axios, { type AxiosRequestConfig } from 'axios'
+import { auth } from '../stores/auth'
 
 const instance = axios.create({ baseURL: '' })
+
+instance.interceptors.request.use((config) => {
+  const token = auth.getToken()
+  if (token) {
+    config.headers = config.headers || {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
 
 instance.interceptors.response.use(
   (res) => {
@@ -10,7 +20,18 @@ instance.interceptors.response.use(
     }
     return body.data
   },
-  (err) => Promise.reject(err)
+  (err) => {
+    const status = err.response?.status
+    const body = err.response?.data
+    if (status === 401) {
+      auth.clear()
+      if (!location.pathname.startsWith('/login')) {
+        location.href = '/login'
+      }
+    }
+    const message = body?.message || err.message || '请求失败'
+    return Promise.reject(new Error(message))
+  }
 )
 
 const http = {

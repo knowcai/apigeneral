@@ -1,0 +1,10 @@
+{
+  "datasourceId": 1,
+  "sqlTemplate": "SELECT * FROM default.not_exists_table WHERE id = :id",
+  "responseMode": "PAGE",
+  "responseConfig": {
+    "maxPageSize": 100,
+    "timeoutSec": 10
+  },
+  "updatedBy": "admin"
+}

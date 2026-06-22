@@ -1,40 +1,85 @@
 <template>
-  <div>
-    <div class="toolbar">
+  <div class="api-page">
+    <div class="page-header">
       <h2>API / SQL 管理</h2>
-      <el-button type="primary" @click="openDef">新建 API</el-button>
+      <el-button v-if="auth.canCreateApi.value" type="primary" @click="openDef">新建 API</el-button>
     </div>
 
-    <el-table :data="apis" stripe @row-click="selectApi">
-      <el-table-column prop="apiCode" label="编码" />
-      <el-table-column prop="name" label="名称" />
-      <el-table-column prop="theme" label="主题" />
-      <el-table-column prop="updatedBy" label="修改人" width="100" />
-    </el-table>
+    <div class="split-layout">
+      <section ref="apiPanelRef" class="panel api-panel">
+        <div class="panel-head">
+          <span class="panel-title">API 列表</span>
+          <span class="panel-meta">共 {{ apis.length }} 个</span>
+        </div>
+        <div class="panel-body">
+          <el-table
+            ref="apiTableRef"
+            :data="apis"
+            stripe
+            highlight-current-row
+            :height="apiTableHeight"
+            @row-click="selectApi"
+          >
+            <el-table-column prop="apiCode" label="编码" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="theme" label="主题" width="90" />
+            <el-table-column prop="createdBy" label="创建人" width="100" />
+            <el-table-column prop="updatedBy" label="修改人" width="100" />
+          </el-table>
+        </div>
+      </section>
 
-    <div v-if="currentApi" class="version-panel">
-      <div class="toolbar">
-        <h3>{{ currentApi.name }} - 版本列表</h3>
-        <el-button type="primary" @click="openVersion">新建版本</el-button>
-      </div>
-      <el-table :data="versions" stripe>
-        <el-table-column prop="versionNo" label="版本" width="70" />
-        <el-table-column prop="responseMode" label="模式" width="90" />
-        <el-table-column prop="status" label="状态" width="100" />
-        <el-table-column prop="updatedBy" label="修改人" width="100" />
-        <el-table-column label="SQL" min-width="200">
-          <template #default="{ row }">
-            <span class="sql-preview">{{ row.sqlTemplate }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="280">
-          <template #default="{ row }">
-            <el-button link @click="editVersion(row)">编辑</el-button>
-            <el-button link type="success" @click="publish(row)" :disabled="row.status === 'PUBLISHED'">发布</el-button>
-            <el-button link @click="showEndpoint(row)">API 路径</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <section ref="versionPanelRef" class="panel version-panel">
+        <div class="panel-head">
+          <span class="panel-title">
+            {{ currentApi ? `${currentApi.name} · 版本列表` : '版本列表' }}
+          </span>
+          <el-button
+            v-if="canEditCurrent"
+            type="primary"
+            size="small"
+            :disabled="!currentApi"
+            @click="openVersion"
+          >
+            新建版本
+          </el-button>
+        </div>
+        <div class="panel-body">
+          <el-empty
+            v-if="!currentApi"
+            description="请在上方选择一个 API"
+            :image-size="64"
+            class="panel-empty"
+          />
+          <el-table
+            v-else
+            :data="versions"
+            stripe
+            :height="versionTableHeight"
+          >
+            <el-table-column prop="versionNo" label="版本" width="70" />
+            <el-table-column prop="responseMode" label="模式" width="90" />
+            <el-table-column prop="status" label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="statusTagType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="updatedBy" label="修改人" width="100" />
+            <el-table-column label="SQL" min-width="200">
+              <template #default="{ row }">
+                <span class="sql-preview">{{ row.sqlTemplate }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="220" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="canEditCurrent" link @click.stop="editVersion(row)" :disabled="row.status === 'PUBLISHED'">编辑</el-button>
+                <el-button v-if="canEditCurrent" link type="success" @click.stop="publish(row)" :disabled="row.status === 'PUBLISHED'">发布</el-button>
+                <el-button link @click.stop="showEndpoint(row)" :disabled="row.status === 'DRAFT'">路径</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
     </div>
 
     <el-dialog v-model="defVisible" title="API 定义" width="520px">
@@ -43,11 +88,10 @@
         <el-form-item label="名称"><el-input v-model="defForm.name" /></el-form-item>
         <el-form-item label="主题"><el-input v-model="defForm.theme" placeholder="如 finance" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="defForm.description" type="textarea" /></el-form-item>
-        <el-form-item label="修改人"><el-input v-model="defForm.updatedBy" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="defVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveDef">保存</el-button>
+        <el-button v-if="!defForm.id || canEditCurrent" type="primary" @click="saveDef">保存</el-button>
       </template>
     </el-dialog>
 
@@ -58,24 +102,30 @@
             <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="响应模式">
-          <el-select v-model="verForm.responseMode" @change="onModeChange">
-            <el-option label="分页 PAGE" value="PAGE" />
-            <el-option label="分块 CHUNK" value="CHUNK" />
-            <el-option label="流式 STREAM" value="STREAM" />
-          </el-select>
-        </el-form-item>
+
+        <div class="hint block-hint mode-hint">
+          <strong>分页入参（请求方 query 参数）</strong><br />
+          请求方须在 URL query 中传入（GET/POST 均如此，与 SQL 的 <code>:参数名</code> 无关）：
+          <ul>
+            <li><code>page</code>：页码，从 1 开始，<strong>必填</strong></li>
+            <li><code>pageSize</code>：每页条数，<strong>必填</strong>，且不能超过下方「单页最大条数」</li>
+          </ul>
+          示例：<code>GET /api/data/v1/theme/apiCode?page=1&amp;pageSize=20&amp;id=123</code>
+        </div>
+
         <el-form-item label="SQL 模板">
-          <el-input v-model="verForm.sqlTemplate" type="textarea" :rows="5" placeholder="SELECT * FROM t WHERE dt = :dt" />
-        </el-form-item>
-        <el-form-item label="参数 Schema">
-          <el-input v-model="paramSchemaJson" type="textarea" :rows="3" placeholder='{"dt":{"type":"string","default":"2024-01-01"}}' />
+          <el-input v-model="verForm.sqlTemplate" type="textarea" :rows="5" placeholder="SELECT * FROM t WHERE id = :id AND dt = :dt" />
+          <div class="hint">
+            SQL 中使用 <code>:参数名</code> 引用请求方传入的参数，例如 <code>:id</code>、<code>:dt</code>。
+            GET 请求通过 query 传参，POST 请求通过 JSON body 传参；未传必填参数时将报错。
+          </div>
         </el-form-item>
 
         <el-divider content-position="left">响应配置</el-divider>
 
         <el-form-item label="超时(秒)">
           <el-input-number v-model="respConfig.timeoutSec" :min="5" :max="3600" />
+          <div class="hint">SQL 执行超过此秒数将中断并返回错误</div>
         </el-form-item>
         <el-form-item label="IP 白名单">
           <el-input v-model="respConfig.ipWhitelistText" placeholder="多个 IP 用逗号分隔，留空表示不限制" />
@@ -85,53 +135,14 @@
           <div class="hint">覆盖全局单接口限流，0 表示使用全局配置</div>
         </el-form-item>
 
-        <template v-if="verForm.responseMode === 'PAGE'">
-          <el-form-item>
-            <template #label>
-              <span>默认每页条数</span>
-            </template>
-            <el-input-number v-model="respConfig.defaultPageSize" :min="1" :max="respConfig.maxPageSize" />
-            <div class="hint">行规默认 20</div>
-          </el-form-item>
-          <el-form-item label="单页最大条数">
-            <el-input-number v-model="respConfig.maxPageSize" :min="1" :max="10000" />
-            <div class="hint">公开 API 常限 100，内部数仓 API 建议 500～1000</div>
-          </el-form-item>
-          <el-form-item label="最大偏移量">
-            <el-input-number v-model="respConfig.maxOffset" :min="1000" :max="10000000" :step="10000" />
-            <div class="hint">深分页保护，建议 10 万，防止 OFFSET 过大拖垮库</div>
-          </el-form-item>
-        </template>
-
-        <template v-if="verForm.responseMode === 'CHUNK'">
-          <el-form-item label="默认每批条数">
-            <el-input-number v-model="respConfig.chunkSize" :min="100" :max="respConfig.maxChunkSize" :step="100" />
-            <div class="hint">分批拉取默认值，建议 1000</div>
-          </el-form-item>
-          <el-form-item label="单批最大条数">
-            <el-input-number v-model="respConfig.maxChunkSize" :min="100" :max="50000" :step="500" />
-            <div class="hint">单次请求上限，行规 5000～10000</div>
-          </el-form-item>
-          <el-form-item label="累计最大条数">
-            <el-input-number v-model="respConfig.maxTotalRows" :min="10000" :max="10000000" :step="10000" />
-            <div class="hint">整次分批会话总行数上限，建议 50 万</div>
-          </el-form-item>
-        </template>
-
-        <template v-if="verForm.responseMode === 'STREAM'">
-          <el-form-item label="每批推送条数">
-            <el-input-number v-model="respConfig.streamBatchSize" :min="50" :max="5000" :step="50" />
-            <div class="hint">每批 flush 行数，建议 500</div>
-          </el-form-item>
-          <el-form-item label="流式最大条数">
-            <el-input-number v-model="respConfig.maxStreamRows" :min="1000" :max="10000000" :step="10000" />
-            <div class="hint">安全阀，防止无限流，建议 10 万</div>
-          </el-form-item>
-          <el-form-item label="最长时长(秒)">
-            <el-input-number v-model="respConfig.maxStreamDurationSec" :min="30" :max="3600" />
-            <div class="hint">超时自动断开，建议 300 秒（5 分钟）</div>
-          </el-form-item>
-        </template>
+        <el-form-item label="单页最大条数">
+          <el-input-number v-model="respConfig.maxPageSize" :min="1" :max="10000" />
+          <div class="hint">请求方 pageSize 不能超过此值；公开 API 建议 100，内部数仓 API 建议 500～1000</div>
+        </el-form-item>
+        <el-form-item label="最大偏移量">
+          <el-input-number v-model="respConfig.maxOffset" :min="1000" :max="10000000" :step="10000" />
+          <div class="hint">深分页保护，建议 10 万，防止 OFFSET 过大拖垮库</div>
+        </el-form-item>
 
         <el-form-item label="修改人"><el-input v-model="verForm.updatedBy" /></el-form-item>
       </el-form>
@@ -144,55 +155,57 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import type { TableInstance } from 'element-plus'
 import http from '../api/http'
+import { auth } from '../stores/auth'
 
 interface RespConfigForm {
   timeoutSec: number
   ipWhitelistText: string
   apiQps: number
-  defaultPageSize: number
   maxPageSize: number
   maxOffset: number
-  chunkSize: number
-  maxChunkSize: number
-  maxTotalRows: number
-  streamBatchSize: number
-  maxStreamRows: number
-  maxStreamDurationSec: number
 }
 
 const PAGE_DEFAULTS: RespConfigForm = {
   timeoutSec: 60, ipWhitelistText: '', apiQps: 0,
-  defaultPageSize: 20, maxPageSize: 500, maxOffset: 100000,
-  chunkSize: 1000, maxChunkSize: 10000, maxTotalRows: 500000,
-  streamBatchSize: 500, maxStreamRows: 100000, maxStreamDurationSec: 300
+  maxPageSize: 500, maxOffset: 100000
 }
 
 const apis = ref<any[]>([])
 const versions = ref<any[]>([])
 const datasources = ref<any[]>([])
 const currentApi = ref<any>(null)
+const canEditCurrent = computed(() => currentApi.value && auth.canEditApi(currentApi.value))
 const defVisible = ref(false)
 const verVisible = ref(false)
-const paramSchemaJson = ref('{}')
-
 const defForm = reactive<any>({ apiCode: '', name: '', theme: '', description: '', updatedBy: 'admin' })
 const verForm = reactive<any>({ datasourceId: null, sqlTemplate: '', responseMode: 'PAGE', updatedBy: 'admin' })
 const respConfig = reactive<RespConfigForm>({ ...PAGE_DEFAULTS })
 
-function resetRespConfig(mode: string) {
-  Object.assign(respConfig, PAGE_DEFAULTS)
-  if (mode === 'CHUNK') {
-    respConfig.chunkSize = 1000
-    respConfig.maxChunkSize = 10000
-    respConfig.maxTotalRows = 500000
-  } else if (mode === 'STREAM') {
-    respConfig.streamBatchSize = 500
-    respConfig.maxStreamRows = 100000
-    respConfig.maxStreamDurationSec = 300
+const apiPanelRef = ref<HTMLElement>()
+const versionPanelRef = ref<HTMLElement>()
+const apiTableRef = ref<TableInstance>()
+const apiTableHeight = ref(320)
+const versionTableHeight = ref(200)
+
+const PANEL_HEAD = 44
+
+function updateTableHeights() {
+  if (apiPanelRef.value) {
+    apiTableHeight.value = Math.max(160, apiPanelRef.value.clientHeight - PANEL_HEAD)
   }
+  if (versionPanelRef.value) {
+    versionTableHeight.value = Math.max(120, versionPanelRef.value.clientHeight - PANEL_HEAD)
+  }
+}
+
+let resizeObserver: ResizeObserver | null = null
+
+function resetRespConfig() {
+  Object.assign(respConfig, PAGE_DEFAULTS)
 }
 
 function fillRespConfig(raw?: Record<string, unknown>) {
@@ -200,15 +213,8 @@ function fillRespConfig(raw?: Record<string, unknown>) {
   respConfig.timeoutSec = Number(c.timeoutSec ?? 60)
   respConfig.ipWhitelistText = Array.isArray(c.ipWhitelist) ? (c.ipWhitelist as string[]).join(', ') : ''
   respConfig.apiQps = Number(c.apiQps ?? 0)
-  respConfig.defaultPageSize = Number(c.defaultPageSize ?? 20)
   respConfig.maxPageSize = Number(c.maxPageSize ?? 500)
   respConfig.maxOffset = Number(c.maxOffset ?? 100000)
-  respConfig.chunkSize = Number(c.chunkSize ?? 1000)
-  respConfig.maxChunkSize = Number(c.maxChunkSize ?? 10000)
-  respConfig.maxTotalRows = Number(c.maxTotalRows ?? 500000)
-  respConfig.streamBatchSize = Number(c.streamBatchSize ?? 500)
-  respConfig.maxStreamRows = Number(c.maxStreamRows ?? 100000)
-  respConfig.maxStreamDurationSec = Number(c.maxStreamDurationSec ?? 300)
 }
 
 function buildRespConfig(): Record<string, unknown> {
@@ -216,39 +222,38 @@ function buildRespConfig(): Record<string, unknown> {
     .split(/[,，\s]+/)
     .map(s => s.trim())
     .filter(Boolean)
-  const base: Record<string, unknown> = {
+  return {
     timeoutSec: respConfig.timeoutSec,
     ipWhitelist: ips,
-    apiQps: respConfig.apiQps > 0 ? respConfig.apiQps : undefined
+    apiQps: respConfig.apiQps > 0 ? respConfig.apiQps : undefined,
+    maxPageSize: respConfig.maxPageSize,
+    maxOffset: respConfig.maxOffset
   }
-  if (verForm.responseMode === 'PAGE') {
-    base.defaultPageSize = respConfig.defaultPageSize
-    base.maxPageSize = respConfig.maxPageSize
-    base.maxOffset = respConfig.maxOffset
-  } else if (verForm.responseMode === 'CHUNK') {
-    base.chunkSize = respConfig.chunkSize
-    base.maxChunkSize = respConfig.maxChunkSize
-    base.maxTotalRows = respConfig.maxTotalRows
-  } else if (verForm.responseMode === 'STREAM') {
-    base.streamBatchSize = respConfig.streamBatchSize
-    base.maxStreamRows = respConfig.maxStreamRows
-    base.maxStreamDurationSec = respConfig.maxStreamDurationSec
-  }
-  return base
-}
-
-function onModeChange(mode: string) {
-  resetRespConfig(mode)
 }
 
 async function loadApis() {
   apis.value = await http.get('/admin/apis')
   datasources.value = await http.get('/admin/datasources')
+  await nextTick()
+  if (apis.value.length === 0) {
+    currentApi.value = null
+    versions.value = []
+    return
+  }
+  const prevId = currentApi.value?.id
+  const target = prevId ? apis.value.find(a => a.id === prevId) : apis.value[0]
+  if (target) {
+    await selectApi(target, false)
+    apiTableRef.value?.setCurrentRow(target)
+  }
 }
 
-async function selectApi(row: any) {
+async function selectApi(row: any, updateHighlight = true) {
   currentApi.value = row
   versions.value = await http.get(`/admin/apis/${row.id}/versions`)
+  if (updateHighlight) {
+    apiTableRef.value?.setCurrentRow(row)
+  }
 }
 
 function openDef() {
@@ -271,14 +276,13 @@ async function saveDef() {
 function openVersion() {
   if (!currentApi.value) return ElMessage.warning('请先选择 API')
   Object.assign(verForm, { id: undefined, datasourceId: datasources.value[0]?.id, sqlTemplate: '', responseMode: 'PAGE', updatedBy: 'admin' })
-  paramSchemaJson.value = '{}'
-  resetRespConfig('PAGE')
+  resetRespConfig()
   verVisible.value = true
 }
 
 function editVersion(row: any) {
   Object.assign(verForm, row)
-  paramSchemaJson.value = JSON.stringify(row.paramSchema || {}, null, 2)
+  verForm.responseMode = 'PAGE'
   fillRespConfig(row.responseConfig)
   verVisible.value = true
 }
@@ -286,7 +290,7 @@ function editVersion(row: any) {
 async function saveVersion() {
   const payload = {
     ...verForm,
-    paramSchema: JSON.parse(paramSchemaJson.value || '{}'),
+    responseMode: 'PAGE',
     responseConfig: buildRespConfig()
   }
   if (verForm.id) {
@@ -300,9 +304,25 @@ async function saveVersion() {
 }
 
 async function publish(row: any) {
-  await http.post(`/admin/apis/versions/${row.id}/publish?operator=admin`)
-  versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
-  ElMessage.success('已发布')
+  try {
+    await http.post(`/admin/apis/versions/${row.id}/publish`)
+    versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
+    ElMessage.success(`v${row.versionNo} 已发布，旧版本已自动废弃`)
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
+}
+
+function statusLabel(status: string) {
+  if (status === 'PUBLISHED') return '已发布'
+  if (status === 'DEPRECATED') return '已废弃'
+  return '草稿'
+}
+
+function statusTagType(status: string): '' | 'success' | 'info' | 'warning' {
+  if (status === 'PUBLISHED') return 'success'
+  if (status === 'DEPRECATED') return 'info'
+  return 'warning'
 }
 
 async function showEndpoint(row: any) {
@@ -310,12 +330,119 @@ async function showEndpoint(row: any) {
   ElMessage.info(`路径: ${info.path}`)
 }
 
-onMounted(loadApis)
+onMounted(async () => {
+  resizeObserver = new ResizeObserver(() => updateTableHeights())
+  if (apiPanelRef.value) resizeObserver.observe(apiPanelRef.value)
+  if (versionPanelRef.value) resizeObserver.observe(versionPanelRef.value)
+  await loadApis()
+  await nextTick()
+  updateTableHeights()
+})
+
+onUnmounted(() => {
+  resizeObserver?.disconnect()
+})
 </script>
 
 <style scoped>
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.version-panel { margin-top: 24px; }
-.sql-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #525252; }
+.api-page {
+  height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.page-header {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.page-header h2 {
+  margin: 0;
+}
+
+.split-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bw-gray-200);
+  background: var(--bw-white);
+}
+
+.api-panel {
+  flex: 6;
+}
+
+.version-panel {
+  flex: 4;
+}
+
+.panel-head {
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--bw-gray-200);
+  background: var(--bw-gray-100);
+}
+
+.panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bw-black);
+}
+
+.panel-meta {
+  font-size: 12px;
+  color: var(--bw-gray-500);
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.el-table__body tr.current-row > td.el-table__cell) {
+  background: var(--bw-gray-200) !important;
+}
+
+:deep(.el-table__body tr) {
+  cursor: pointer;
+}
+
+.sql-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #525252;
+}
+
 .hint { font-size: 12px; color: #737373; margin-top: 4px; line-height: 1.4; }
+.hint code { font-family: ui-monospace, monospace; color: #525252; background: #f5f5f5; padding: 0 4px; border-radius: 3px; }
+.block-hint { margin-bottom: 16px; padding: 10px 12px; background: #fafafa; border-radius: 6px; }
+.mode-hint { margin: -8px 0 16px 140px; max-width: calc(100% - 140px); }
+.block-hint ul { margin: 8px 0 0; padding-left: 18px; }
+.block-hint li { margin: 4px 0; }
 </style>
