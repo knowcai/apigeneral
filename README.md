@@ -2,6 +2,8 @@
 
 Doris / ClickHouse 动态 SQL API 网关。通过管理台配置 SQL 模板与数据源，发布后自动生成 REST 数据接口；内置限流、单 API 熔断、版本发布、权限与操作审计。
 
+Licensed under the [Apache License 2.0](LICENSE).
+
 ## 功能概览
 
 ### 连接串管理
@@ -199,3 +201,7 @@ gateway:
     default-admin-username: admin
     default-admin-password: admin123
 ```
+
+## License
+
+[Apache License 2.0](LICENSE) — Copyright 2026 knowcai
