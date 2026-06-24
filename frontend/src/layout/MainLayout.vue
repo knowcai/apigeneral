@@ -11,6 +11,14 @@
           <el-icon><Document /></el-icon>
           <span>API / SQL</span>
         </el-menu-item>
+        <el-menu-item index="/themes">
+          <el-icon><Folder /></el-icon>
+          <span>主题管理</span>
+        </el-menu-item>
+        <el-menu-item index="/approvals">
+          <el-icon><CircleCheck /></el-icon>
+          <span>审批中心</span>
+        </el-menu-item>
         <el-menu-item index="/logs">
           <el-icon><DataLine /></el-icon>
           <span>访问监控</span>
@@ -22,6 +30,10 @@
         <el-menu-item index="/audit">
           <el-icon><List /></el-icon>
           <span>操作审计</span>
+        </el-menu-item>
+        <el-menu-item v-if="auth.canManageUsers.value" index="/consumers">
+          <el-icon><Key /></el-icon>
+          <span>调用方 / Key</span>
         </el-menu-item>
         <el-menu-item v-if="auth.canManageUsers.value" index="/users">
           <el-icon><User /></el-icon>
@@ -51,9 +63,7 @@ const router = useRouter()
 const roleLabel = computed(() => {
   const r = auth.state.user?.role
   if (r === 'SUPER_ADMIN') return '超级管理员'
-  if (r === 'API_EDITOR') return 'API 编辑'
-  if (r === 'API_VIEWER') return 'API 只读'
-  return ''
+  return '普通用户'
 })
 
 function logout() {

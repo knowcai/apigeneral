@@ -1,0 +1,16 @@
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+gateway:
+  auth:
+    default-admin-username: testadmin
+    default-admin-password: testadmin123
+  consumer:
+    bootstrap-key: ""

@@ -25,6 +25,9 @@ public class ApiDefinition {
     @Column(length = 100)
     private String theme;
 
+    @Column(name = "theme_id")
+    private Long themeId;
+
     private String description;
 
     @Column(name = "created_by", length = 100)

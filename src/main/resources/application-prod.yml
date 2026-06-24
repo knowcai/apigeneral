@@ -1,7 +1,7 @@
-# 生产/联调：连接外部 PostgreSQL（自行修改）
+# 生产/联调：连接外部 PostgreSQL
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/apigateway
-    username: gateway
-    password: gateway
+    url: jdbc:postgresql://192.168.31.100:5432/vectordb
+    username: ${GATEWAY_DB_USER:root}
+    password: ${GATEWAY_DB_PASSWORD:root}
     driver-class-name: org.postgresql.Driver

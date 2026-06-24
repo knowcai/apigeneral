@@ -57,13 +57,30 @@ public class UserService {
         return repository.findAll();
     }
 
+    public List<UserInfo> listRegularUsers() {
+        authzService.requireAuthenticated();
+        if (!authzService.isSuperAdmin()) {
+            throw new BusinessException(403, "无权访问");
+        }
+        return repository.findAll().stream()
+                .filter(u -> u.getRole() != UserRole.SUPER_ADMIN)
+                .map(this::toInfo)
+                .toList();
+    }
+
     @Transactional
     public SysUser create(UserRequest req) {
         authzService.requireSuperAdmin();
         if (repository.findByUsername(req.getUsername()).isPresent()) {
             throw new BusinessException("用户名已存在");
         }
-        assertRoleRules(null, req.getRole());
+        UserRole role = req.getRole() != null ? req.getRole() : UserRole.API_EDITOR;
+        if (role == UserRole.SUPER_ADMIN) {
+            assertRoleRules(null, role);
+        } else if (role != UserRole.API_EDITOR && role != UserRole.API_VIEWER) {
+            throw new BusinessException("仅可创建普通用户");
+        }
+        req.setRole(role);
         SysUser user = new SysUser();
         apply(user, req, true);
         SysUser saved = repository.save(user);
@@ -79,7 +96,12 @@ public class UserService {
                 && repository.findByUsername(req.getUsername()).isPresent()) {
             throw new BusinessException("用户名已存在");
         }
-        assertRoleRules(id, req.getRole());
+        UserRole role = user.getRole();
+        if (role == UserRole.SUPER_ADMIN) {
+            req.setRole(UserRole.SUPER_ADMIN);
+        } else {
+            req.setRole(UserRole.API_EDITOR);
+        }
         apply(user, req, false);
         SysUser saved = repository.save(user);
         auditLogService.log("UPDATE", "USER", String.valueOf(saved.getId()), saved.getUsername(), toInfo(saved));

@@ -53,6 +53,9 @@ public class Datasource {
 
     private String description;
 
+    @Column(name = "theme_id")
+    private Long themeId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

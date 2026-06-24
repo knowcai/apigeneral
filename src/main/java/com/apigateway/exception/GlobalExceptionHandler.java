@@ -5,9 +5,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -16,6 +21,46 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ApiResponse<Void> handleAccessDenied(Exception ex) {
         return ApiResponse.fail(403, "无权访问");
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleValidation(MethodArgumentNotValidException ex) {
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .map(this::formatFieldError)
+                .collect(Collectors.joining("；"));
+        return ApiResponse.fail(400, message.isEmpty() ? "参数校验失败" : message);
+    }
+
+    private String formatFieldError(FieldError error) {
+        String field = switch (error.getField()) {
+            case "password" -> "密码";
+            case "username" -> "用户名";
+            case "name" -> "名称";
+            case "code" -> "编码";
+            case "assigneeUserIds" -> "审批人";
+            default -> error.getField();
+        };
+        if ("password".equals(error.getField())) {
+            return field + "至少 6 位";
+        }
+        if ("username".equals(error.getField())) {
+            return field + "不能为空";
+        }
+        return field + ": " + error.getDefaultMessage();
+    }
+
+    @ExceptionHandler(UnexpectedRollbackException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleUnexpectedRollback(UnexpectedRollbackException ex) {
+        Throwable cause = ex;
+        while (cause != null) {
+            if (cause instanceof BusinessException be) {
+                return ApiResponse.fail(be.getCode() > 0 ? be.getCode() : 400, be.getMessage());
+            }
+            cause = cause.getCause();
+        }
+        return ApiResponse.fail("操作失败，请重试");
     }
 
     @ExceptionHandler(BusinessException.class)
@@ -33,7 +78,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleOther(Exception ex) {
-        return ApiResponse.fail(ex.getMessage());
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            message = "服务器内部错误，请稍后重试";
+        }
+        return ApiResponse.fail(message);
     }
 
     private HttpStatus mapStatus(int code) {
@@ -41,6 +90,7 @@ public class GlobalExceptionHandler {
             case 401 -> HttpStatus.UNAUTHORIZED;
             case 403 -> HttpStatus.FORBIDDEN;
             case 429 -> HttpStatus.TOO_MANY_REQUESTS;
+            case 202 -> HttpStatus.ACCEPTED;
             case 503 -> HttpStatus.SERVICE_UNAVAILABLE;
             default -> HttpStatus.BAD_REQUEST;
         };

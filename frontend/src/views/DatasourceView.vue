@@ -3,11 +3,15 @@
     <div class="toolbar">
       <h2>连接串管理</h2>
       <el-button v-if="auth.canEditDatasource.value" type="primary" @click="openCreate">新建连接</el-button>
-      <el-tag v-else type="info">只读（仅超级管理员可修改）</el-tag>
+      <el-tag v-if="auth.canEditDatasource.value && !auth.isSuperAdmin.value" type="info">变更需主题管理员审批后生效</el-tag>
+      <el-tag v-else-if="!auth.canEditDatasource.value" type="info">只读</el-tag>
     </div>
 
     <el-table :data="list" stripe>
       <el-table-column prop="name" label="名称" />
+      <el-table-column label="主题" width="120">
+        <template #default="{ row }">{{ themeName(row.themeId) }}</template>
+      </el-table-column>
       <el-table-column prop="type" label="类型" width="120" />
       <el-table-column prop="host" label="Host" />
       <el-table-column prop="port" label="端口" width="80" />
@@ -29,6 +33,11 @@
     <el-dialog v-model="visible" :title="form.id ? (auth.canEditDatasource.value ? '编辑连接' : '查看连接') : '新建连接'" width="680px">
       <el-form :model="form" label-width="130px" :disabled="!auth.canEditDatasource.value && !!form.id">
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
+        <el-form-item label="主题">
+          <el-select v-model="form.themeId" style="width: 100%">
+            <el-option v-for="t in themes" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="form.type" @change="loadTemplate">
             <el-option label="Doris" value="DORIS" />
@@ -93,7 +102,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import http from '../api/http'
+import http, { isApprovalResult } from '../api/http'
 import { auth } from '../stores/auth'
 
 interface Datasource {
@@ -109,6 +118,7 @@ interface Datasource {
   readonly?: boolean
   status?: string
   description?: string
+  themeId?: number
   defaultParams?: Record<string, unknown>
 }
 
@@ -123,6 +133,7 @@ interface ParamForm {
 }
 
 const list = ref<Datasource[]>([])
+const themes = ref<any[]>([])
 const visible = ref(false)
 const testing = ref(false)
 const form = reactive<Datasource>({
@@ -167,7 +178,13 @@ function buildDefaultParams(): Record<string, unknown> {
 }
 
 async function load() {
+  themes.value = await http.get('/admin/themes')
   list.value = await http.get('/admin/datasources')
+}
+
+function themeName(themeId?: number) {
+  if (themeId == null) return '-'
+  return themes.value.find(t => t.id === themeId)?.name ?? '-'
 }
 
 async function loadTemplate() {
@@ -178,7 +195,8 @@ async function loadTemplate() {
 function openCreate() {
   Object.assign(form, {
     id: undefined, name: '', type: 'DORIS', host: '127.0.0.1', port: 9030,
-    databaseName: '', username: '', password: '', env: 'dev', readonly: true, description: ''
+    databaseName: '', username: '', password: '', env: 'dev', readonly: true, description: '',
+    themeId: themes.value[0]?.id
   })
   loadTemplate()
   visible.value = true
@@ -191,16 +209,22 @@ function openEdit(row: Datasource) {
 }
 
 async function save() {
+  if (!form.themeId) return ElMessage.warning('请选择主题')
   try {
     const payload = { ...form, defaultParams: buildDefaultParams() }
+    let result: unknown
     if (form.id) {
-      await http.put(`/admin/datasources/${form.id}`, payload)
+      result = await http.put(`/admin/datasources/${form.id}`, payload)
     } else {
-      await http.post('/admin/datasources', payload)
+      result = await http.post('/admin/datasources', payload)
     }
-    ElMessage.success('保存成功')
     visible.value = false
     await load()
+    if (isApprovalResult(result)) {
+      ElMessage.success(result.message)
+    } else {
+      ElMessage.success('保存成功')
+    }
   } catch (e: any) {
     ElMessage.error(e.message)
   }

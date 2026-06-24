@@ -13,6 +13,8 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
 
 server:
   port: 8080
@@ -25,3 +27,6 @@ gateway:
     jwt-expiration-hours: 24
     default-admin-username: admin
     default-admin-password: admin123
+  consumer:
+    bootstrap-name: 开发默认调用方
+    bootstrap-key: gw_dev_change_me_in_production

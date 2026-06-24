@@ -67,10 +67,25 @@ public class AdminApiController {
         return ApiResponse.ok(apiManagementService.publish(versionId, operator));
     }
 
+    @PostMapping("/versions/{versionId}/suspend")
+    public ApiResponse<ApiVersion> suspend(@PathVariable Long versionId) {
+        return ApiResponse.ok(apiManagementService.suspend(versionId));
+    }
+
+    @PostMapping("/versions/{versionId}/resume")
+    public ApiResponse<ApiVersion> resume(@PathVariable Long versionId) {
+        return ApiResponse.ok(apiManagementService.resume(versionId));
+    }
+
     @PostMapping("/versions/{versionId}/deprecate")
     public ApiResponse<ApiVersion> deprecate(@PathVariable Long versionId,
                                                @RequestParam(defaultValue = "admin") String operator) {
         return ApiResponse.ok(apiManagementService.deprecate(versionId, operator));
+    }
+
+    @GetMapping("/versions/{versionId}/doc")
+    public ApiResponse<Map<String, Object>> doc(@PathVariable Long versionId) {
+        return ApiResponse.ok(apiManagementService.buildApiDoc(versionId));
     }
 
     @GetMapping("/versions/{versionId}/endpoint")

@@ -24,7 +24,7 @@ public class AccessLogService {
     private final AuthzService authzService;
 
     @Async
-    public void logAsync(String apiCode, Integer version, String clientIp, String consumerName,
+    public void logAsync(String apiCode, Integer version, String clientIp, Long consumerId, String consumerName,
                          Map<String, Object> params, String mode, long rows, long bytes,
                          long durationMs, String status, String error) {
         ApiAccessLog log = new ApiAccessLog();
@@ -32,6 +32,7 @@ public class AccessLogService {
         log.setApiCode(apiCode);
         log.setApiVersion(version);
         log.setClientIp(clientIp);
+        log.setConsumerId(consumerId);
         log.setConsumerName(consumerName);
         log.setRequestParams(params);
         log.setResponseMode(mode);

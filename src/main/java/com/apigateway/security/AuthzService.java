@@ -1,8 +1,8 @@
 package com.apigateway.security;
 
 import com.apigateway.entity.ApiDefinition;
-import com.apigateway.entity.UserRole;
 import com.apigateway.exception.BusinessException;
+import com.apigateway.repository.ThemeMembershipRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 public class AuthzService {
 
     private final CurrentUser currentUser;
+    private final ThemeMembershipRepository membershipRepository;
 
     public void requireSuperAdmin() {
         if (!currentUser.isSuperAdmin()) {
@@ -22,28 +23,38 @@ public class AuthzService {
         currentUser.requireUser();
     }
 
+    public boolean isSuperAdmin() {
+        return currentUser.isSuperAdmin();
+    }
+
+    public Long currentUserId() {
+        return currentUser.requireUser().getId();
+    }
+
     public void requireApiRead() {
         requireAuthenticated();
     }
 
     public void requireApiWrite(ApiDefinition def) {
-        AuthUser user = currentUser.requireUser();
-        if (user.getRole() == UserRole.SUPER_ADMIN) {
+        requireAuthenticated();
+        if (isSuperAdmin()) {
             return;
         }
-        if (user.getRole() == UserRole.API_EDITOR && def.getCreatedBy() != null
-                && def.getCreatedBy().equals(user.getUsername())) {
-            return;
+        if (def.getThemeId() == null) {
+            throw new BusinessException(403, "该 API 未绑定主题");
         }
-        throw new BusinessException(403, "无权修改该 API，仅创建人或超级管理员可操作");
+        membershipRepository.findByThemeIdAndUserId(def.getThemeId(), currentUserId())
+                .orElseThrow(() -> new BusinessException(403, "无权操作该主题下的 API"));
     }
 
     public void requireApiCreate() {
-        AuthUser user = currentUser.requireUser();
-        if (user.getRole() == UserRole.SUPER_ADMIN || user.getRole() == UserRole.API_EDITOR) {
+        requireAuthenticated();
+        if (isSuperAdmin()) {
             return;
         }
-        throw new BusinessException(403, "无权新建 API");
+        if (membershipRepository.findByUserId(currentUserId()).isEmpty()) {
+            throw new BusinessException(403, "无权新建 API，请联系管理员分配主题");
+        }
     }
 
     public boolean canWriteApi(ApiDefinition def) {

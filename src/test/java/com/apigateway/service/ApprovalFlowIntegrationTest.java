@@ -1,0 +1,190 @@
+package com.apigateway.service;
+
+import com.apigateway.dto.ApiDefinitionRequest;
+import com.apigateway.dto.ThemeResponse;
+import com.apigateway.entity.*;
+import com.apigateway.exception.BusinessException;
+import com.apigateway.repository.ApiDefinitionRepository;
+import com.apigateway.repository.ApprovalRequestRepository;
+import com.apigateway.repository.ApprovalTaskRepository;
+import com.apigateway.support.TestAuth;
+import com.apigateway.support.TestFixtures;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@ActiveProfiles("test")
+@Transactional
+class ApprovalFlowIntegrationTest {
+
+    @Autowired
+    private ApprovalService approvalService;
+    @Autowired
+    private TestFixtures fixtures;
+    @Autowired
+    private ApiDefinitionRepository apiDefinitionRepository;
+    @Autowired
+    private ApprovalRequestRepository approvalRequestRepository;
+    @Autowired
+    private ApprovalTaskRepository approvalTaskRepository;
+
+    private SysUser admin1;
+    private SysUser admin2;
+    private SysUser member;
+    private ThemeResponse theme;
+
+    @BeforeEach
+    void setUp() {
+        admin1 = fixtures.createUser("appr_admin1", UserRole.API_EDITOR);
+        admin2 = fixtures.createUser("appr_admin2", UserRole.API_EDITOR);
+        member = fixtures.createUser("appr_member", UserRole.API_EDITOR);
+
+        theme = fixtures.createThemeWithAdmins("审批测试主题", List.of(admin1.getId(), admin2.getId()));
+        fixtures.assignMembers(theme.getId(), List.of(member.getId()));
+    }
+
+    @AfterEach
+    void tearDown() {
+        TestAuth.clear();
+    }
+
+    @Test
+    void singleThemeAdminApprovalCreatesApi() {
+        ApiDefinitionRequest payload = apiPayload("simple-api", theme.getId());
+
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "新建 API", payload);
+        assertEquals(ApprovalStatus.PENDING, submitted.getStatus());
+
+        Long taskId = pendingTaskForAssignee(admin1.getId(), admin1.getUsername());
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        approvalService.approveTask(taskId, true, "ok");
+
+        ApprovalRequest finished = approvalRequestRepository.findById(submitted.getId()).orElseThrow();
+        assertEquals(ApprovalStatus.APPROVED, finished.getStatus());
+        assertTrue(apiDefinitionRepository.findByApiCode("simple-api").isPresent());
+    }
+
+    @Test
+    void oneAdminApproveIsEnoughWhenMultipleTasksExist() {
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "任一管理员审批", apiPayload("either-api", theme.getId()));
+
+        TestAuth.login(admin2.getId(), admin2.getUsername(), UserRole.API_EDITOR);
+        approvalService.approveTask(pendingTaskForAssignee(admin2.getId(), admin2.getUsername()), true, "ok");
+
+        assertEquals(ApprovalStatus.APPROVED,
+                approvalRequestRepository.findById(submitted.getId()).orElseThrow().getStatus());
+        assertTrue(apiDefinitionRepository.findByApiCode("either-api").isPresent());
+    }
+
+    @Test
+    void rejectStopsApproval() {
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "驳回测试", apiPayload("reject-api", theme.getId()));
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        approvalService.approveTask(pendingTaskForAssignee(admin1.getId(), admin1.getUsername()), false, "不同意");
+
+        ApprovalRequest finished = approvalRequestRepository.findById(submitted.getId()).orElseThrow();
+        assertEquals(ApprovalStatus.REJECTED, finished.getStatus());
+        assertTrue(apiDefinitionRepository.findByApiCode("reject-api").isEmpty());
+    }
+
+    @Test
+    void cannotApproveWithoutPermission() {
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "越权审批", apiPayload("forbidden-api", theme.getId()));
+
+        Long taskId = pendingTaskForAssignee(admin1.getId(), admin1.getUsername());
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> approvalService.approveTask(taskId, true, null));
+        assertEquals(403, ex.getCode());
+    }
+
+    @Test
+    void submitFailsWhenNoOtherThemeAdmin() {
+        SysUser loneAdmin = fixtures.createUser("lone_admin", UserRole.API_EDITOR);
+        ThemeResponse loneTheme = fixtures.createThemeWithAdmins("单人主题", List.of(loneAdmin.getId()));
+
+        TestAuth.login(loneAdmin.getId(), loneAdmin.getUsername(), UserRole.API_EDITOR);
+        BusinessException ex = assertThrows(BusinessException.class, () -> approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                loneTheme.getId(), "无审批人", apiPayload("lone-api", loneTheme.getId())));
+        assertTrue(ex.getMessage().contains("无其他主题管理员"));
+    }
+
+    @Test
+    void themeAdminSubmissionNeedsAnotherAdmin() {
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "管理员提交", apiPayload("admin-submit-api", theme.getId()));
+        assertEquals(ApprovalStatus.PENDING, submitted.getStatus());
+        assertFalse(apiDefinitionRepository.findByApiCode("admin-submit-api").isPresent());
+    }
+
+    @Test
+    void superAdminSubmitAppliesDirectly() {
+        SysUser superAdmin = fixtures.requireSuperAdmin();
+        TestAuth.login(superAdmin.getId(), superAdmin.getUsername(), UserRole.SUPER_ADMIN);
+        ApprovalRequest result = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "超管直建", apiPayload("super-api", theme.getId()));
+        assertEquals(ApprovalStatus.APPROVED, result.getStatus());
+        assertTrue(apiDefinitionRepository.findByApiCode("super-api").isPresent());
+    }
+
+    @Test
+    void superAdminCanApprovePendingTask() {
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "超管审批", apiPayload("super-approve-api", theme.getId()));
+
+        SysUser superAdmin = fixtures.requireSuperAdmin();
+        TestAuth.login(superAdmin.getId(), superAdmin.getUsername(), UserRole.SUPER_ADMIN);
+        List<Map<String, Object>> tasks = approvalService.listMyPendingTasks();
+        assertFalse(tasks.isEmpty());
+        Long taskId = ((Number) tasks.get(0).get("taskId")).longValue();
+        approvalService.approveTask(taskId, true, "超管通过");
+
+        assertEquals(ApprovalStatus.APPROVED,
+                approvalRequestRepository.findById(submitted.getId()).orElseThrow().getStatus());
+        assertTrue(apiDefinitionRepository.findByApiCode("super-approve-api").isPresent());
+    }
+
+    private ApiDefinitionRequest apiPayload(String code, Long themeId) {
+        ApiDefinitionRequest req = new ApiDefinitionRequest();
+        req.setApiCode(code);
+        req.setName(code);
+        req.setThemeId(themeId);
+        return req;
+    }
+
+    private Long pendingTaskForAssignee(Long assigneeId, String username) {
+        TestAuth.login(assigneeId, username, UserRole.API_EDITOR);
+        List<Map<String, Object>> tasks = approvalService.listMyPendingTasks();
+        assertFalse(tasks.isEmpty(), "assignee " + assigneeId + " should have pending task");
+        return ((Number) tasks.get(0).get("taskId")).longValue();
+    }
+}

@@ -13,7 +13,7 @@
 
     <groupId>com.apigateway</groupId>
     <artifactId>sql-api-gateway</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>1.0.1</version>
     <name>sql-api-gateway</name>
     <description>Doris / ClickHouse SQL API Gateway</description>
 
@@ -76,11 +76,12 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- 本地开发：无 Docker 时自动启动嵌入式 PostgreSQL -->
+        <!-- 单元测试：嵌入式 PostgreSQL -->
         <dependency>
             <groupId>io.zonky.test</groupId>
             <artifactId>embedded-postgres</artifactId>
             <version>2.0.7</version>
+            <scope>test</scope>
         </dependency>
         <!-- Doris (MySQL 协议) -->
         <dependency>
@@ -124,6 +125,15 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>1</forkCount>
+                    <reuseForks>true</reuseForks>
+                    <parallel>none</parallel>
                 </configuration>
             </plugin>
         </plugins>

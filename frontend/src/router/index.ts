@@ -6,7 +6,10 @@ import ApiView from '../views/ApiView.vue'
 import LogView from '../views/LogView.vue'
 import PolicyView from '../views/PolicyView.vue'
 import UserView from '../views/UserView.vue'
+import ConsumerView from '../views/ConsumerView.vue'
 import AuditView from '../views/AuditView.vue'
+import ThemeView from '../views/ThemeView.vue'
+import ApprovalView from '../views/ApprovalView.vue'
 import { auth } from '../stores/auth'
 import http from '../api/http'
 
@@ -22,8 +25,11 @@ const router = createRouter({
       children: [
         { path: 'datasources', component: DatasourceView },
         { path: 'apis', component: ApiView },
+        { path: 'themes', component: ThemeView },
+        { path: 'approvals', component: ApprovalView },
         { path: 'logs', component: LogView },
         { path: 'policy', component: PolicyView },
+        { path: 'consumers', component: ConsumerView, meta: { superAdmin: true } },
         { path: 'users', component: UserView, meta: { superAdmin: true } },
         { path: 'audit', component: AuditView }
       ]

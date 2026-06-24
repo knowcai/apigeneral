@@ -2,7 +2,6 @@ package com.apigateway.dto;
 
 import com.apigateway.entity.UserRole;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -19,7 +18,7 @@ public class UserRequest {
     @Size(max = 100)
     private String displayName;
 
-    @NotNull
+    /** 新建用户可不传，默认为普通用户（API_EDITOR） */
     private UserRole role;
 
     private Boolean enabled = true;

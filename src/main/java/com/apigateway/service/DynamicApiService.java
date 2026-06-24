@@ -6,6 +6,7 @@ import com.apigateway.entity.ApiVersion;
 import com.apigateway.entity.Datasource;
 import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.DatasourceRepository;
+import com.apigateway.security.ApiConsumerContext;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class DynamicApiService {
     private final AccessLogService accessLogService;
     private final GatewayProtectionService protectionService;
     private final InFlightRequestTracker inFlightRequestTracker;
+    private final ConsumerService consumerService;
 
     public QueryResult invoke(String theme, String apiCode, Integer versionNo, Map<String, Object> params,
                               Integer page, Integer pageSize, HttpServletRequest request) {
@@ -37,10 +39,9 @@ public class DynamicApiService {
                               Integer page, Integer pageSize, HttpServletRequest request) {
         long start = System.currentTimeMillis();
         String clientIp = resolveClientIp(request);
-        String consumer = request.getHeader("X-Consumer-Name");
-        if (consumer == null) {
-            consumer = "anonymous";
-        }
+        ApiConsumerContext apiConsumer = (ApiConsumerContext) request.getAttribute(ApiConsumerContext.REQUEST_ATTR);
+        String consumerName = apiConsumer != null ? apiConsumer.getName() : "unknown";
+        Long consumerId = apiConsumer != null ? apiConsumer.getId() : null;
         Map<String, Object> mergedParams = mergeParams(params);
         Integer logVersion = versionNo;
         boolean sqlAttempted = false;
@@ -52,7 +53,9 @@ public class DynamicApiService {
             }
             ApiVersion version = apiManagementService.resolvePublishedVersion(def, versionNo);
             logVersion = version.getVersionNo();
-            assertIpAllowed(version, clientIp);
+            if (consumerId == null || !consumerService.canAccess(consumerId, def.getId())) {
+                throw new BusinessException(403, "该 API Key 无权访问此 API: " + apiCode);
+            }
 
             Map<String, Object> config = version.getResponseConfig() != null ? version.getResponseConfig() : Map.of();
             protectionService.checkRateLimit(clientIp, apiCode, protectionService.resolveApiQpsOverride(config));
@@ -74,30 +77,30 @@ public class DynamicApiService {
 
             protectionService.onSuccess(apiCode);
             long bytes = accessLogService.estimateBytes(result);
-            logAccess(apiCode, logVersion, clientIp, consumer, mergedParams, start,
+            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
                     result.getRows().size(), bytes, "SUCCESS", null);
             return result;
         } catch (BusinessException e) {
             if (sqlAttempted && shouldCountExecutionFailure(e)) {
                 protectionService.onFailure(apiCode);
             }
-            logAccess(apiCode, logVersion, clientIp, consumer, mergedParams, start,
+            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
                     0, 0, statusLabel(e), e.getMessage());
             throw e;
         } catch (Exception e) {
             if (sqlAttempted) {
                 protectionService.onFailure(apiCode);
             }
-            logAccess(apiCode, logVersion, clientIp, consumer, mergedParams, start,
+            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
                     0, 0, "ERROR", e.getMessage());
             throw e;
         }
     }
 
-    private void logAccess(String apiCode, Integer version, String clientIp, String consumer,
+    private void logAccess(String apiCode, Integer version, String clientIp, Long consumerId, String consumerName,
                            Map<String, Object> params, long start,
                            long rows, long bytes, String status, String error) {
-        accessLogService.logAsync(apiCode, version, clientIp, consumer, params,
+        accessLogService.logAsync(apiCode, version, clientIp, consumerId, consumerName, params,
                 "PAGE", rows, bytes, System.currentTimeMillis() - start, status, error);
     }
 
@@ -112,22 +115,6 @@ public class DynamicApiService {
             case 403 -> "FORBIDDEN";
             default -> "ERROR";
         };
-    }
-
-    @SuppressWarnings("unchecked")
-    private void assertIpAllowed(ApiVersion version, String clientIp) {
-        Map<String, Object> config = version.getResponseConfig();
-        if (config == null || !config.containsKey("ipWhitelist")) {
-            return;
-        }
-        Object raw = config.get("ipWhitelist");
-        if (!(raw instanceof List<?> list) || list.isEmpty()) {
-            return;
-        }
-        boolean allowed = list.stream().map(String::valueOf).anyMatch(ip -> ip.equals(clientIp) || "*".equals(ip));
-        if (!allowed) {
-            throw new BusinessException(403, "IP 不在白名单: " + clientIp);
-        }
     }
 
     private Map<String, Object> mergeParams(Map<String, Object> requestParams) {

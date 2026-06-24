@@ -1,4 +1,4 @@
-CREATE TABLE sys_user (
+CREATE TABLE IF NOT EXISTS sys_user (
     id              BIGSERIAL PRIMARY KEY,
     username        VARCHAR(50)  NOT NULL UNIQUE,
     password_hash   VARCHAR(200) NOT NULL,
@@ -9,7 +9,13 @@ CREATE TABLE sys_user (
     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE audit_log (
+ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS display_name VARCHAR(100);
+ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS role VARCHAR(30);
+ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS audit_log (
     id              BIGSERIAL PRIMARY KEY,
     user_id         BIGINT,
     username        VARCHAR(50),
@@ -21,4 +27,4 @@ CREATE TABLE audit_log (
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_audit_log_time ON audit_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log (created_at DESC);

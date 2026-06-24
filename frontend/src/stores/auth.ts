@@ -24,15 +24,19 @@ export const auth = {
   isApiEditor: computed(() => state.user?.role === 'API_EDITOR'),
   isApiViewer: computed(() => state.user?.role === 'API_VIEWER'),
   canEditPolicy: computed(() => state.user?.role === 'SUPER_ADMIN'),
-  canEditDatasource: computed(() => state.user?.role === 'SUPER_ADMIN'),
+  canEditDatasource: computed(() => ['SUPER_ADMIN', 'API_EDITOR'].includes(state.user?.role || '')),
   canManageUsers: computed(() => state.user?.role === 'SUPER_ADMIN'),
+  canManageThemes: computed(() => state.user?.role === 'SUPER_ADMIN'),
   canCreateApi: computed(() => ['SUPER_ADMIN', 'API_EDITOR'].includes(state.user?.role || '')),
-  canEditApi(def: { createdBy?: string }) {
+  canEditApi(def: { themeId?: number }, themeIds: number[] = []) {
     const u = state.user
     if (!u) return false
     if (u.role === 'SUPER_ADMIN') return true
-    if (u.role === 'API_EDITOR') return def.createdBy === u.username
-    return false
+    if (u.role === 'API_VIEWER') return false
+    if (def.themeId != null && themeIds.length > 0) {
+      return themeIds.includes(def.themeId)
+    }
+    return u.role === 'API_EDITOR'
   },
   setSession(token: string, user: UserInfo) {
     state.token = token

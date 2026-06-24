@@ -32,4 +32,7 @@ public class DatasourceRequest {
     private Boolean readonly = true;
     private String status = "ACTIVE";
     private String description;
+
+    @NotNull
+    private Long themeId;
 }

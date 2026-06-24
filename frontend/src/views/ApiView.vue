@@ -22,9 +22,16 @@
           >
             <el-table-column prop="apiCode" label="编码" min-width="140" show-overflow-tooltip />
             <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-            <el-table-column prop="theme" label="主题" width="90" />
+            <el-table-column label="主题" width="120">
+              <template #default="{ row }">{{ themeName(row.themeId) }}</template>
+            </el-table-column>
             <el-table-column prop="createdBy" label="创建人" width="100" />
             <el-table-column prop="updatedBy" label="修改人" width="100" />
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="canEditApi(row)" link @click.stop="editDef(row)">编辑</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
       </section>
@@ -70,11 +77,42 @@
                 <span class="sql-preview">{{ row.sqlTemplate }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="220" fixed="right">
+            <el-table-column label="操作" width="340" fixed="right">
               <template #default="{ row }">
-                <el-button v-if="canEditCurrent" link @click.stop="editVersion(row)" :disabled="row.status === 'PUBLISHED'">编辑</el-button>
-                <el-button v-if="canEditCurrent" link type="success" @click.stop="publish(row)" :disabled="row.status === 'PUBLISHED'">发布</el-button>
-                <el-button link @click.stop="showEndpoint(row)" :disabled="row.status === 'DRAFT'">路径</el-button>
+                <template v-if="canEditCurrent">
+                  <el-tooltip :content="editDisabledReason(row)" :disabled="!editDisabledReason(row)" placement="top">
+                    <span class="action-btn-wrap">
+                      <el-button link :disabled="!canEditVersion(row)" @click.stop="editVersion(row)">编辑</el-button>
+                    </span>
+                  </el-tooltip>
+                  <el-tooltip :content="publishDisabledReason(row)" :disabled="!publishDisabledReason(row)" placement="top">
+                    <span class="action-btn-wrap">
+                      <el-button link type="success" :disabled="!canPublishVersion(row)" @click.stop="publish(row)">发布</el-button>
+                    </span>
+                  </el-tooltip>
+                  <el-button
+                    v-if="row.status === 'PUBLISHED'"
+                    link
+                    type="warning"
+                    @click.stop="suspendVersion(row)"
+                  >
+                    关闭
+                  </el-button>
+                  <el-button
+                    v-if="row.status === 'SUSPENDED'"
+                    link
+                    type="primary"
+                    @click.stop="resumeVersion(row)"
+                  >
+                    重启
+                  </el-button>
+                </template>
+                <el-tooltip content="草稿版本尚未发布，暂无访问路径" :disabled="row.status !== 'DRAFT'" placement="top">
+                  <span class="action-btn-wrap">
+                    <el-button link @click.stop="showEndpoint(row)" :disabled="row.status === 'DRAFT'">路径</el-button>
+                  </span>
+                </el-tooltip>
+                <el-button link @click.stop="showDoc(row)">文档</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -86,7 +124,11 @@
       <el-form :model="defForm" label-width="90px">
         <el-form-item label="编码"><el-input v-model="defForm.apiCode" :disabled="!!defForm.id" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="defForm.name" /></el-form-item>
-        <el-form-item label="主题"><el-input v-model="defForm.theme" placeholder="如 finance" /></el-form-item>
+        <el-form-item label="主题">
+          <el-select v-model="defForm.themeId" style="width: 100%" :disabled="!!defForm.id">
+            <el-option v-for="t in themes" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="描述"><el-input v-model="defForm.description" type="textarea" /></el-form-item>
       </el-form>
       <template #footer>
@@ -127,9 +169,6 @@
           <el-input-number v-model="respConfig.timeoutSec" :min="5" :max="3600" />
           <div class="hint">SQL 执行超过此秒数将中断并返回错误</div>
         </el-form-item>
-        <el-form-item label="IP 白名单">
-          <el-input v-model="respConfig.ipWhitelistText" placeholder="多个 IP 用逗号分隔，留空表示不限制" />
-        </el-form-item>
         <el-form-item label="接口 QPS 上限">
           <el-input-number v-model="respConfig.apiQps" :min="0" :max="10000" />
           <div class="hint">覆盖全局单接口限流，0 表示使用全局配置</div>
@@ -151,37 +190,58 @@
         <el-button type="primary" @click="saveVersion">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="docVisible" title="API 文档" width="640px">
+      <el-descriptions v-if="apiDoc" :column="1" border size="small">
+        <el-descriptions-item label="名称">{{ apiDoc.apiName }}</el-descriptions-item>
+        <el-descriptions-item label="路径"><code>{{ apiDoc.path }}</code></el-descriptions-item>
+        <el-descriptions-item label="方法">{{ apiDoc.method }}</el-descriptions-item>
+        <el-descriptions-item label="认证">{{ apiDoc.authHint }}</el-descriptions-item>
+        <el-descriptions-item label="分页参数">{{ apiDoc.pageParams }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ apiDoc.status }}</el-descriptions-item>
+      </el-descriptions>
+      <div v-if="apiDoc" class="doc-sql">
+        <div class="doc-label">SQL 模板</div>
+        <pre>{{ apiDoc.sqlTemplate }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="docVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TableInstance } from 'element-plus'
-import http from '../api/http'
+import http, { isApprovalResult } from '../api/http'
 import { auth } from '../stores/auth'
 
 interface RespConfigForm {
   timeoutSec: number
-  ipWhitelistText: string
   apiQps: number
   maxPageSize: number
   maxOffset: number
 }
 
 const PAGE_DEFAULTS: RespConfigForm = {
-  timeoutSec: 60, ipWhitelistText: '', apiQps: 0,
+  timeoutSec: 60, apiQps: 0,
   maxPageSize: 500, maxOffset: 100000
 }
 
 const apis = ref<any[]>([])
+const themes = ref<any[]>([])
+const themeIds = computed(() => themes.value.map(t => t.id))
 const versions = ref<any[]>([])
 const datasources = ref<any[]>([])
 const currentApi = ref<any>(null)
-const canEditCurrent = computed(() => currentApi.value && auth.canEditApi(currentApi.value))
+const canEditCurrent = computed(() => currentApi.value && canEditApi(currentApi.value))
 const defVisible = ref(false)
 const verVisible = ref(false)
-const defForm = reactive<any>({ apiCode: '', name: '', theme: '', description: '', updatedBy: 'admin' })
+const docVisible = ref(false)
+const apiDoc = ref<any>(null)
+const defForm = reactive<any>({ apiCode: '', name: '', themeId: null, description: '' })
 const verForm = reactive<any>({ datasourceId: null, sqlTemplate: '', responseMode: 'PAGE', updatedBy: 'admin' })
 const respConfig = reactive<RespConfigForm>({ ...PAGE_DEFAULTS })
 
@@ -211,27 +271,31 @@ function resetRespConfig() {
 function fillRespConfig(raw?: Record<string, unknown>) {
   const c = raw || {}
   respConfig.timeoutSec = Number(c.timeoutSec ?? 60)
-  respConfig.ipWhitelistText = Array.isArray(c.ipWhitelist) ? (c.ipWhitelist as string[]).join(', ') : ''
   respConfig.apiQps = Number(c.apiQps ?? 0)
   respConfig.maxPageSize = Number(c.maxPageSize ?? 500)
   respConfig.maxOffset = Number(c.maxOffset ?? 100000)
 }
 
 function buildRespConfig(): Record<string, unknown> {
-  const ips = respConfig.ipWhitelistText
-    .split(/[,，\s]+/)
-    .map(s => s.trim())
-    .filter(Boolean)
   return {
     timeoutSec: respConfig.timeoutSec,
-    ipWhitelist: ips,
     apiQps: respConfig.apiQps > 0 ? respConfig.apiQps : undefined,
     maxPageSize: respConfig.maxPageSize,
     maxOffset: respConfig.maxOffset
   }
 }
 
+function canEditApi(row: any) {
+  return auth.canEditApi(row, themeIds.value)
+}
+
+function themeName(themeId?: number) {
+  if (themeId == null) return '-'
+  return themes.value.find(t => t.id === themeId)?.name ?? '-'
+}
+
 async function loadApis() {
+  themes.value = await http.get('/admin/themes')
   apis.value = await http.get('/admin/apis')
   datasources.value = await http.get('/admin/datasources')
   await nextTick()
@@ -257,25 +321,56 @@ async function selectApi(row: any, updateHighlight = true) {
 }
 
 function openDef() {
-  Object.assign(defForm, { id: undefined, apiCode: '', name: '', theme: '', description: '', updatedBy: 'admin' })
+  Object.assign(defForm, {
+    id: undefined,
+    apiCode: '',
+    name: '',
+    themeId: themes.value[0]?.id ?? null,
+    description: ''
+  })
+  defVisible.value = true
+}
+
+function editDef(row: any) {
+  Object.assign(defForm, {
+    id: row.id,
+    apiCode: row.apiCode,
+    name: row.name,
+    themeId: row.themeId,
+    description: row.description
+  })
   defVisible.value = true
 }
 
 async function saveDef() {
-  if (defForm.id) {
-    await http.put(`/admin/apis/${defForm.id}`, defForm)
-  } else {
-    const created = await http.post('/admin/apis', defForm)
-    currentApi.value = created
+  if (!defForm.themeId) return ElMessage.warning('请选择主题')
+  try {
+    let result: unknown
+    if (defForm.id) {
+      result = await http.put(`/admin/apis/${defForm.id}`, defForm)
+    } else {
+      result = await http.post('/admin/apis', defForm)
+      if (!isApprovalResult(result)) currentApi.value = result
+    }
+    defVisible.value = false
+    await loadApis()
+    if (isApprovalResult(result)) {
+      ElMessage.success(result.message)
+    } else {
+      ElMessage.success('保存成功')
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message)
   }
-  defVisible.value = false
-  await loadApis()
-  ElMessage.success('保存成功')
+}
+
+function currentOperator() {
+  return auth.state.user?.username || 'admin'
 }
 
 function openVersion() {
   if (!currentApi.value) return ElMessage.warning('请先选择 API')
-  Object.assign(verForm, { id: undefined, datasourceId: datasources.value[0]?.id, sqlTemplate: '', responseMode: 'PAGE', updatedBy: 'admin' })
+  Object.assign(verForm, { id: undefined, datasourceId: datasources.value[0]?.id, sqlTemplate: '', responseMode: 'PAGE', updatedBy: currentOperator() })
   resetRespConfig()
   verVisible.value = true
 }
@@ -288,41 +383,131 @@ function editVersion(row: any) {
 }
 
 async function saveVersion() {
+  const sql = verForm.sqlTemplate?.trim()
+  if (!sql) {
+    ElMessage.warning('请填写 SQL 模板')
+    return
+  }
+  if (!/^(SELECT|WITH|SHOW|DESC|EXPLAIN)\b/i.test(sql)) {
+    ElMessage.warning('SQL 必须以 SELECT、WITH、SHOW、DESC 或 EXPLAIN 开头')
+    return
+  }
   const payload = {
     ...verForm,
+    sqlTemplate: sql,
     responseMode: 'PAGE',
     responseConfig: buildRespConfig()
   }
-  if (verForm.id) {
-    await http.put(`/admin/apis/versions/${verForm.id}`, payload)
-  } else {
-    await http.post(`/admin/apis/${currentApi.value.id}/versions`, payload)
-  }
-  verVisible.value = false
-  versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
-  ElMessage.success('保存成功')
-}
-
-async function publish(row: any) {
   try {
-    await http.post(`/admin/apis/versions/${row.id}/publish`)
-    versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
-    ElMessage.success(`v${row.versionNo} 已发布，旧版本已自动废弃`)
+    let result: unknown
+    if (verForm.id) {
+      result = await http.put(`/admin/apis/versions/${verForm.id}`, payload)
+    } else {
+      result = await http.post(`/admin/apis/${currentApi.value.id}/versions`, payload)
+    }
+    verVisible.value = false
+    if (isApprovalResult(result)) {
+      ElMessage.success(result.message)
+    } else {
+      versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
+      ElMessage.success('保存成功')
+    }
   } catch (e: any) {
     ElMessage.error(e.message)
   }
 }
 
+async function publish(row: any) {
+  try {
+    const result = await http.post(`/admin/apis/versions/${row.id}/publish`)
+    versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
+    if (isApprovalResult(result)) {
+      ElMessage.success(result.message)
+    } else {
+      ElMessage.success(`v${row.versionNo} 已发布，旧版本已自动废弃`)
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
+}
+
+async function suspendVersion(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `关闭 v${row.versionNo} 后，新请求将无法访问该版本，进行中的请求不受影响。确定关闭？`,
+      '关闭 API 版本',
+      { type: 'warning', confirmButtonText: '关闭', cancelButtonText: '取消' }
+    )
+    const result = await http.post(`/admin/apis/versions/${row.id}/suspend`)
+    if (isApprovalResult(result)) {
+      ElMessage.success(result.message)
+    } else {
+      versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
+      ElMessage.success(`v${row.versionNo} 已关闭，新请求将被拒绝`)
+    }
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e.message || '操作失败')
+  }
+}
+
+async function resumeVersion(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `重启 v${row.versionNo} 后将恢复对外服务，当前其他已发布版本将自动废弃。确定重启？`,
+      '重启 API 版本',
+      { type: 'info', confirmButtonText: '重启', cancelButtonText: '取消' }
+    )
+    const result = await http.post(`/admin/apis/versions/${row.id}/resume`)
+    if (isApprovalResult(result)) {
+      ElMessage.success(result.message)
+    } else {
+      versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
+      ElMessage.success(`v${row.versionNo} 已重启`)
+    }
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e.message || '操作失败')
+  }
+}
+
+function canEditVersion(row: { status: string }) {
+  return row.status === 'DRAFT'
+}
+
+function editDisabledReason(row: { status: string }) {
+  if (row.status === 'PUBLISHED') return '已发布版本不可直接编辑，请新建版本后修改 SQL'
+  if (row.status === 'SUSPENDED') return '已暂停版本不可编辑，请新建版本后修改 SQL'
+  if (row.status === 'DEPRECATED') return '已废弃版本不可编辑，请新建版本'
+  return ''
+}
+
+function canPublishVersion(row: { status: string }) {
+  return row.status === 'DRAFT'
+}
+
+function publishDisabledReason(row: { status: string }) {
+  if (row.status === 'PUBLISHED') return '该版本已发布，无需重复发布'
+  if (row.status === 'SUSPENDED') return '已暂停版本请使用「重启」恢复服务，或新建版本'
+  if (row.status === 'DEPRECATED') return '已废弃版本不可发布，请新建版本'
+  return ''
+}
+
 function statusLabel(status: string) {
   if (status === 'PUBLISHED') return '已发布'
+  if (status === 'SUSPENDED') return '已暂停'
   if (status === 'DEPRECATED') return '已废弃'
   return '草稿'
 }
 
-function statusTagType(status: string): '' | 'success' | 'info' | 'warning' {
+function statusTagType(status: string): '' | 'success' | 'info' | 'warning' | 'danger' {
   if (status === 'PUBLISHED') return 'success'
+  if (status === 'SUSPENDED') return 'warning'
   if (status === 'DEPRECATED') return 'info'
   return 'warning'
+}
+
+async function showDoc(row: any) {
+  apiDoc.value = await http.get(`/admin/apis/versions/${row.id}/doc`)
+  docVisible.value = true
 }
 
 async function showEndpoint(row: any) {
@@ -439,10 +624,24 @@ onUnmounted(() => {
   color: #525252;
 }
 
+.action-btn-wrap {
+  display: inline-block;
+  vertical-align: middle;
+}
+
 .hint { font-size: 12px; color: #737373; margin-top: 4px; line-height: 1.4; }
 .hint code { font-family: ui-monospace, monospace; color: #525252; background: #f5f5f5; padding: 0 4px; border-radius: 3px; }
 .block-hint { margin-bottom: 16px; padding: 10px 12px; background: #fafafa; border-radius: 6px; }
 .mode-hint { margin: -8px 0 16px 140px; max-width: calc(100% - 140px); }
 .block-hint ul { margin: 8px 0 0; padding-left: 18px; }
 .block-hint li { margin: 4px 0; }
+.doc-label { margin: 16px 0 8px; font-weight: 600; font-size: 13px; }
+.doc-sql pre {
+  background: #fafafa;
+  border: 1px solid #e5e5e5;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
 </style>

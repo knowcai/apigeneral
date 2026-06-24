@@ -15,6 +15,9 @@ instance.interceptors.request.use((config) => {
 instance.interceptors.response.use(
   (res) => {
     const body = res.data
+    if (body && body.code === 202) {
+      return { __approval: true, message: body.message || '已提交审批' }
+    }
     if (body && body.code !== 0) {
       return Promise.reject(new Error(body.message || '请求失败'))
     }
@@ -50,3 +53,7 @@ const http = {
 }
 
 export default http
+
+export function isApprovalResult(result: unknown): result is { __approval: true; message: string } {
+  return !!result && typeof result === 'object' && '__approval' in result
+}
