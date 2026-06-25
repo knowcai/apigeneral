@@ -1,5 +1,6 @@
 package com.apigateway.controller.admin;
 
+import com.apigateway.datasource.DatasourceDriverRegistry;
 import com.apigateway.dto.ApiResponse;
 import com.apigateway.dto.DatasourceRequest;
 import com.apigateway.entity.Datasource;
@@ -17,6 +18,12 @@ import java.util.Map;
 public class AdminDatasourceController {
 
     private final DatasourceService datasourceService;
+    private final DatasourceDriverRegistry driverRegistry;
+
+    @GetMapping("/types")
+    public ApiResponse<List<Map<String, String>>> supportedTypes() {
+        return ApiResponse.ok(driverRegistry.listSupported());
+    }
 
     @GetMapping
     public ApiResponse<List<Datasource>> list() {

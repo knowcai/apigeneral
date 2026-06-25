@@ -2,6 +2,7 @@ package com.apigateway.service;
 
 import com.apigateway.entity.GatewayPolicy;
 import com.apigateway.exception.BusinessException;
+import com.apigateway.service.distributed.RateLimiterPort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -14,7 +15,7 @@ import java.util.function.Supplier;
 public class GatewayProtectionService {
 
     private final GatewayPolicyService policyService;
-    private final SlidingWindowRateLimiter rateLimiter;
+    private final RateLimiterPort rateLimiter;
     private final CircuitBreakerService circuitBreakerService;
 
     public void checkRateLimit(String clientIp, String apiCode, Integer apiQpsOverride) {

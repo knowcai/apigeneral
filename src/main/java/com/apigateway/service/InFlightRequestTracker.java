@@ -1,34 +1,29 @@
 package com.apigateway.service;
 
+import com.apigateway.service.distributed.InFlightCounterPort;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /** 跟踪每个 apiCode 正在处理的动态 API 请求数，用于发布前校验。 */
 @Component
+@RequiredArgsConstructor
 public class InFlightRequestTracker {
 
-    private final ConcurrentHashMap<String, AtomicInteger> counters = new ConcurrentHashMap<>();
+    private final InFlightCounterPort counter;
 
     public void begin(String apiCode) {
-        counters.computeIfAbsent(apiCode, k -> new AtomicInteger()).incrementAndGet();
+        counter.begin(apiCode);
     }
 
     public void end(String apiCode) {
-        AtomicInteger counter = counters.get(apiCode);
-        if (counter != null) {
-            counter.decrementAndGet();
-        }
+        counter.end(apiCode);
     }
 
     public boolean hasInFlight(String apiCode) {
-        AtomicInteger counter = counters.get(apiCode);
-        return counter != null && counter.get() > 0;
+        return counter.hasInFlight(apiCode);
     }
 
     public int count(String apiCode) {
-        AtomicInteger counter = counters.get(apiCode);
-        return counter == null ? 0 : Math.max(0, counter.get());
+        return counter.count(apiCode);
     }
 }

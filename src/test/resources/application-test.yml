@@ -14,3 +14,7 @@ gateway:
     default-admin-password: testadmin123
   consumer:
     bootstrap-key: ""
+  health:
+    check-downstream-datasources: false
+  access-log:
+    cleanup-enabled: false

@@ -3,9 +3,11 @@ package com.apigateway.controller.admin;
 import com.apigateway.dto.ApiDefinitionRequest;
 import com.apigateway.dto.ApiResponse;
 import com.apigateway.dto.ApiVersionRequest;
+import com.apigateway.dto.QueryResult;
 import com.apigateway.entity.ApiDefinition;
 import com.apigateway.entity.ApiVersion;
 import com.apigateway.service.ApiManagementService;
+import com.apigateway.service.ApiOpenApiExportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +21,7 @@ import java.util.Map;
 public class AdminApiController {
 
     private final ApiManagementService apiManagementService;
+    private final ApiOpenApiExportService openApiExportService;
 
     @GetMapping
     public ApiResponse<List<ApiDefinition>> list() {
@@ -93,5 +96,21 @@ public class AdminApiController {
         ApiVersion version = apiManagementService.getVersion(versionId);
         ApiDefinition def = apiManagementService.getDefinition(version.getApiId());
         return ApiResponse.ok(apiManagementService.buildApiPath(def, version));
+    }
+
+    @PostMapping("/versions/{versionId}/test")
+    public ApiResponse<QueryResult> testVersion(@PathVariable Long versionId,
+                                                @RequestBody(required = false) Map<String, Object> params) {
+        return ApiResponse.ok(apiManagementService.testVersion(versionId, params));
+    }
+
+    @GetMapping("/versions/{versionId}/openapi")
+    public ApiResponse<Map<String, Object>> exportOpenApiByVersion(@PathVariable Long versionId) {
+        return ApiResponse.ok(openApiExportService.exportByVersionId(versionId));
+    }
+
+    @GetMapping("/by-code/{apiCode}/openapi")
+    public ApiResponse<Map<String, Object>> exportOpenApiByCode(@PathVariable String apiCode) {
+        return ApiResponse.ok(openApiExportService.exportPublishedByApiCode(apiCode));
     }
 }

@@ -1,109 +1,114 @@
 <template>
   <div>
     <div class="toolbar">
-      <h2>连接串管理</h2>
-      <el-button v-if="auth.canEditDatasource.value" type="primary" @click="openCreate">新建连接</el-button>
-      <el-tag v-if="auth.canEditDatasource.value && !auth.isSuperAdmin.value" type="info">变更需主题管理员审批后生效</el-tag>
-      <el-tag v-else-if="!auth.canEditDatasource.value" type="info">只读</el-tag>
+      <h2>{{ t('datasource.title') }}</h2>
+      <el-button v-if="auth.canEditDatasource.value" type="primary" @click="openCreate">{{ t('datasource.create') }}</el-button>
+      <el-tag v-if="auth.canEditDatasource.value && !auth.isSuperAdmin.value" type="info">{{ t('datasource.needApproval') }}</el-tag>
+      <el-tag v-else-if="!auth.canEditDatasource.value" type="info">{{ t('common.readonly') }}</el-tag>
     </div>
 
     <el-table :data="list" stripe>
-      <el-table-column prop="name" label="名称" />
-      <el-table-column label="主题" width="120">
+      <el-table-column prop="name" :label="t('col.name')" />
+      <el-table-column :label="t('col.theme')" width="120">
         <template #default="{ row }">{{ themeName(row.themeId) }}</template>
       </el-table-column>
-      <el-table-column prop="type" label="类型" width="120" />
-      <el-table-column prop="host" label="Host" />
-      <el-table-column prop="port" label="端口" width="80" />
-      <el-table-column prop="databaseName" label="数据库" />
-      <el-table-column prop="env" label="环境" width="80" />
-      <el-table-column prop="status" label="状态" width="90" />
-      <el-table-column label="操作" width="220">
+      <el-table-column prop="type" :label="t('col.type')" width="120" />
+      <el-table-column prop="host" :label="t('col.host')" />
+      <el-table-column prop="port" :label="t('col.port')" width="80" />
+      <el-table-column prop="databaseName" :label="t('col.database')" />
+      <el-table-column prop="env" :label="t('col.env')" width="80" />
+      <el-table-column prop="status" :label="t('col.status')" width="90" />
+      <el-table-column :label="t('col.actions')" width="220">
         <template #default="{ row }">
           <template v-if="auth.canEditDatasource.value">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link @click="testConn(row)">测试</el-button>
-            <el-button link type="danger" @click="remove(row)">删除</el-button>
+            <el-button link type="primary" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+            <el-button link @click="testConn(row)">{{ t('common.test') }}</el-button>
+            <el-button link type="danger" @click="remove(row)">{{ t('common.delete') }}</el-button>
           </template>
-          <el-button v-else link @click="openEdit(row)">查看</el-button>
+          <el-button v-else link @click="openEdit(row)">{{ t('common.view') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="visible" :title="form.id ? (auth.canEditDatasource.value ? '编辑连接' : '查看连接') : '新建连接'" width="680px">
+    <el-dialog v-model="visible" :title="dialogTitle" width="680px">
       <el-form :model="form" label-width="130px" :disabled="!auth.canEditDatasource.value && !!form.id">
-        <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="主题">
+        <el-form-item :label="t('col.name')"><el-input v-model="form.name" /></el-form-item>
+        <el-form-item :label="t('col.theme')">
           <el-select v-model="form.themeId" style="width: 100%">
-            <el-option v-for="t in themes" :key="t.id" :label="t.name" :value="t.id" />
+            <el-option v-for="th in themes" :key="th.id" :label="th.name" :value="th.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="类型">
+        <el-form-item :label="t('col.type')">
           <el-select v-model="form.type" @change="loadTemplate">
-            <el-option label="Doris" value="DORIS" />
-            <el-option label="ClickHouse" value="CLICKHOUSE" />
+            <el-option v-for="dt in datasourceTypes" :key="dt.type" :label="dt.displayName" :value="dt.type" />
           </el-select>
         </el-form-item>
-        <el-form-item label="Host"><el-input v-model="form.host" /></el-form-item>
-        <el-form-item label="端口"><el-input-number v-model="form.port" :min="1" /></el-form-item>
-        <el-form-item label="数据库"><el-input v-model="form.databaseName" /></el-form-item>
-        <el-form-item label="用户名"><el-input v-model="form.username" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="form.password" type="password" show-password /></el-form-item>
-        <el-form-item label="环境"><el-input v-model="form.env" /></el-form-item>
-        <el-form-item label="只读">
-          <el-switch v-model="form.readonly" />
-        </el-form-item>
+        <el-form-item :label="t('col.host')"><el-input v-model="form.host" /></el-form-item>
+        <el-form-item :label="t('col.port')"><el-input-number v-model="form.port" :min="1" /></el-form-item>
+        <el-form-item :label="t('col.database')"><el-input v-model="form.databaseName" /></el-form-item>
+        <el-form-item :label="t('login.username')"><el-input v-model="form.username" /></el-form-item>
+        <el-form-item :label="t('login.password')"><el-input v-model="form.password" type="password" show-password /></el-form-item>
+        <el-form-item :label="t('col.env')"><el-input v-model="form.env" /></el-form-item>
+        <el-form-item :label="t('common.readonly')"><el-switch v-model="form.readonly" /></el-form-item>
 
-        <el-divider content-position="left">连接参数</el-divider>
+        <el-divider content-position="left">{{ t('datasource.connParams') }}</el-divider>
 
-        <el-form-item label="协议">
+        <el-form-item v-if="form.type === 'CLICKHOUSE'" :label="t('datasource.transportProtocol')">
           <el-select v-model="params.protocol" style="width: 100%">
-            <el-option v-if="form.type === 'DORIS'" label="MySQL 协议" value="mysql" />
-            <el-option v-if="form.type === 'CLICKHOUSE'" label="HTTP" value="http" />
-            <el-option v-if="form.type === 'CLICKHOUSE'" label="Native" value="native" />
+            <el-option :label="t('datasource.protocolHttp')" value="http" />
+            <el-option :label="t('datasource.protocolNative')" value="native" />
           </el-select>
+          <div class="field-hint">{{ t('datasource.protocolHint') }}</div>
         </el-form-item>
-        <el-form-item label="连接池最小空闲">
+        <el-form-item :label="t('datasource.poolMinIdle')">
           <el-input-number v-model="params.poolMinIdle" :min="1" :max="100" />
         </el-form-item>
-        <el-form-item label="连接池最大连接">
+        <el-form-item :label="t('datasource.poolMaxActive')">
           <el-input-number v-model="params.poolMaxActive" :min="1" :max="200" />
         </el-form-item>
-        <el-form-item label="连接超时(ms)">
+        <el-form-item :label="t('datasource.connectTimeoutMs')">
           <el-input-number v-model="params.connectTimeoutMs" :min="1000" :step="1000" />
         </el-form-item>
 
-        <template v-if="form.type === 'DORIS'">
-          <el-form-item label="查询超时(秒)">
+        <template v-if="form.type === 'TRINO'">
+          <el-form-item label="Schema"><el-input v-model="params.schema" /></el-form-item>
+          <el-form-item :label="t('datasource.queryTimeoutSec')">
+            <el-input-number v-model="params.queryTimeoutSec" :min="1" />
+          </el-form-item>
+        </template>
+
+        <template v-if="form.type === 'POSTGRES' || form.type === 'DORIS'">
+          <el-form-item :label="t('datasource.queryTimeoutSec')">
             <el-input-number v-model="params.queryTimeoutSec" :min="1" />
           </el-form-item>
         </template>
 
         <template v-if="form.type === 'CLICKHOUSE'">
-          <el-form-item label="启用压缩">
-            <el-switch v-model="params.compress" />
-          </el-form-item>
-          <el-form-item label="最大线程数">
+          <el-form-item :label="t('datasource.compress')"><el-switch v-model="params.compress" /></el-form-item>
+          <el-form-item :label="t('datasource.maxThreads')">
             <el-input-number v-model="params.maxThreads" :min="1" :max="64" />
           </el-form-item>
         </template>
 
-        <el-form-item label="描述"><el-input v-model="form.description" type="textarea" /></el-form-item>
+        <el-form-item :label="t('col.description')"><el-input v-model="form.description" type="textarea" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="visible = false">取消</el-button>
-        <el-button :loading="testing" @click="testFormConn">测试连接</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
+        <el-button :loading="testing" @click="testFormConn">{{ t('datasource.testConn') }}</el-button>
+        <el-button type="primary" @click="save">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http, { isApprovalResult } from '../api/http'
 import { auth } from '../stores/auth'
+
+const { t } = useI18n()
 
 interface Datasource {
   id?: number
@@ -124,6 +129,7 @@ interface Datasource {
 
 interface ParamForm {
   protocol: string
+  schema: string
   poolMinIdle: number
   poolMaxActive: number
   connectTimeoutMs: number
@@ -134,13 +140,20 @@ interface ParamForm {
 
 const list = ref<Datasource[]>([])
 const themes = ref<any[]>([])
+const datasourceTypes = ref<{ type: string; displayName: string }[]>([])
 const visible = ref(false)
 const testing = ref(false)
 const form = reactive<Datasource>({
   name: '', type: 'DORIS', host: '127.0.0.1', port: 9030, databaseName: '', readonly: true, env: 'dev'
 })
+
+const dialogTitle = computed(() => {
+  if (!form.id) return t('datasource.create')
+  return auth.canEditDatasource.value ? t('datasource.edit') : t('datasource.view')
+})
 const params = reactive<ParamForm>({
   protocol: 'mysql',
+  schema: 'default',
   poolMinIdle: 2,
   poolMaxActive: 10,
   connectTimeoutMs: 5000,
@@ -151,7 +164,10 @@ const params = reactive<ParamForm>({
 
 function fillParamsFromBackend(raw?: Record<string, unknown>) {
   const p = raw || {}
-  params.protocol = String(p.protocol ?? (form.type === 'DORIS' ? 'mysql' : 'http'))
+  if (form.type === 'CLICKHOUSE') {
+    params.protocol = String(p.protocol ?? 'http')
+  }
+  params.schema = String(p.schema ?? 'default')
   params.poolMinIdle = Number(p['pool.minIdle'] ?? 2)
   params.poolMaxActive = Number(p['pool.maxActive'] ?? 10)
   params.connectTimeoutMs = Number(p.connectTimeoutMs ?? 5000)
@@ -162,17 +178,23 @@ function fillParamsFromBackend(raw?: Record<string, unknown>) {
 
 function buildDefaultParams(): Record<string, unknown> {
   const base: Record<string, unknown> = {
-    protocol: params.protocol,
     'pool.minIdle': params.poolMinIdle,
     'pool.maxActive': params.poolMaxActive,
     connectTimeoutMs: params.connectTimeoutMs
   }
-  if (form.type === 'DORIS') {
+  if (form.type === 'CLICKHOUSE') {
+    base.protocol = params.protocol
+  }
+  if (form.type === 'DORIS' || form.type === 'POSTGRES' || form.type === 'STARROCKS') {
     base.queryTimeoutSec = params.queryTimeoutSec
   }
   if (form.type === 'CLICKHOUSE') {
     base.compress = params.compress
     base.maxThreads = params.maxThreads
+  }
+  if (form.type === 'TRINO') {
+    base.schema = params.schema
+    base.queryTimeoutSec = params.queryTimeoutSec
   }
   return base
 }
@@ -180,6 +202,7 @@ function buildDefaultParams(): Record<string, unknown> {
 async function load() {
   themes.value = await http.get('/admin/themes')
   list.value = await http.get('/admin/datasources')
+  datasourceTypes.value = await http.get('/admin/datasources/types')
 }
 
 function themeName(themeId?: number) {
@@ -209,7 +232,7 @@ function openEdit(row: Datasource) {
 }
 
 async function save() {
-  if (!form.themeId) return ElMessage.warning('请选择主题')
+  if (!form.themeId) return ElMessage.warning(t('common.selectTheme'))
   try {
     const payload = { ...form, defaultParams: buildDefaultParams() }
     let result: unknown
@@ -223,7 +246,7 @@ async function save() {
     if (isApprovalResult(result)) {
       ElMessage.success(result.message)
     } else {
-      ElMessage.success('保存成功')
+      ElMessage.success(t('common.saved'))
     }
   } catch (e: any) {
     ElMessage.error(e.message)
@@ -233,7 +256,7 @@ async function save() {
 async function testConn(row: Datasource) {
   try {
     await http.post(`/admin/datasources/${row.id}/test`)
-    ElMessage.success('连接成功（SELECT 1）')
+    ElMessage.success(t('datasource.testOk'))
   } catch (e: any) {
     ElMessage.error(e.message)
   }
@@ -241,11 +264,11 @@ async function testConn(row: Datasource) {
 
 async function testFormConn() {
   if (!form.host?.trim()) {
-    ElMessage.warning('请填写 Host')
+    ElMessage.warning(t('datasource.fillHost'))
     return
   }
   if (!form.databaseName?.trim()) {
-    ElMessage.warning('请填写数据库')
+    ElMessage.warning(t('datasource.fillDatabase'))
     return
   }
   testing.value = true
@@ -253,7 +276,7 @@ async function testFormConn() {
     const payload = { ...form, defaultParams: buildDefaultParams() }
     const url = form.id ? `/admin/datasources/test?id=${form.id}` : '/admin/datasources/test'
     await http.post(url, payload)
-    ElMessage.success('连接成功（SELECT 1）')
+    ElMessage.success(t('datasource.testOk'))
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
@@ -262,9 +285,9 @@ async function testFormConn() {
 }
 
 async function remove(row: Datasource) {
-  await ElMessageBox.confirm('确认删除？', '提示')
+  await ElMessageBox.confirm(t('common.confirmDelete'), t('common.tip'))
   await http.delete(`/admin/datasources/${row.id}`)
-  ElMessage.success('已删除')
+  ElMessage.success(t('common.deleted'))
   await load()
 }
 
@@ -273,4 +296,5 @@ onMounted(load)
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.field-hint { font-size: 12px; color: #737373; margin-top: 4px; line-height: 1.4; }
 </style>

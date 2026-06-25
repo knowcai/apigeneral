@@ -1,6 +1,7 @@
 package com.apigateway.exception;
 
 import com.apigateway.dto.ApiResponse;
+import com.apigateway.web.HttpErrorWriter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -11,6 +12,8 @@ import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 
 import java.util.stream.Collectors;
 
@@ -69,10 +72,9 @@ public class GlobalExceptionHandler {
         if (ex.getData() instanceof java.util.Map<?, ?> map && map.containsKey("code")) {
             return ResponseEntity.status(status).body(map);
         }
-        if (ex.getData() != null) {
-            return ResponseEntity.status(status).body(new ApiResponse<>(ex.getCode(), ex.getMessage(), ex.getData()));
-        }
-        return ResponseEntity.status(status).body(new ApiResponse<>(ex.getCode(), ex.getMessage(), null));
+        ApiResponse<Object> body = new ApiResponse<>(ex.getCode(), ex.getMessage(), ex.getData(), currentRequestId());
+        body.setRequestId(currentRequestId());
+        return ResponseEntity.status(status).body(body);
     }
 
     @ExceptionHandler(Exception.class)
@@ -82,7 +84,17 @@ public class GlobalExceptionHandler {
         if (message == null || message.isBlank()) {
             message = "服务器内部错误，请稍后重试";
         }
-        return ApiResponse.fail(message);
+        ApiResponse<Void> body = ApiResponse.fail(message);
+        body.setRequestId(currentRequestId());
+        return body;
+    }
+
+    private String currentRequestId() {
+        var attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof ServletRequestAttributes servletAttrs) {
+            return HttpErrorWriter.requestId(servletAttrs.getRequest());
+        }
+        return null;
     }
 
     private HttpStatus mapStatus(int code) {

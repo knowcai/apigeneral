@@ -2,10 +2,12 @@ package com.apigateway.service;
 
 import com.apigateway.dto.ApiDefinitionRequest;
 import com.apigateway.dto.ApiVersionRequest;
+import com.apigateway.dto.QueryResult;
 import com.apigateway.entity.*;
 import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.ApiDefinitionRepository;
 import com.apigateway.repository.ApiVersionRepository;
+import com.apigateway.repository.DatasourceRepository;
 import com.apigateway.repository.ThemeRepository;
 import com.apigateway.security.AuthzService;
 import com.apigateway.security.CurrentUser;
@@ -30,6 +32,8 @@ public class ApiManagementService {
     private final ThemeRepository themeRepository;
     private final ThemeService themeService;
     private final ApprovalService approvalService;
+    private final DatasourceRepository datasourceRepository;
+    private final SqlExecutionService sqlExecutionService;
 
     public ApiManagementService(
             ApiDefinitionRepository definitionRepository,
@@ -40,7 +44,9 @@ public class ApiManagementService {
             InFlightRequestTracker inFlightRequestTracker,
             ThemeRepository themeRepository,
             ThemeService themeService,
-            @Lazy ApprovalService approvalService) {
+            @Lazy ApprovalService approvalService,
+            DatasourceRepository datasourceRepository,
+            SqlExecutionService sqlExecutionService) {
         this.definitionRepository = definitionRepository;
         this.versionRepository = versionRepository;
         this.authzService = authzService;
@@ -50,6 +56,8 @@ public class ApiManagementService {
         this.themeRepository = themeRepository;
         this.themeService = themeService;
         this.approvalService = approvalService;
+        this.datasourceRepository = datasourceRepository;
+        this.sqlExecutionService = sqlExecutionService;
     }
 
     public List<ApiDefinition> listDefinitions() {
@@ -361,6 +369,9 @@ public class ApiManagementService {
         version.setSqlTemplate(req.getSqlTemplate());
         version.setResponseMode(req.getResponseMode());
         version.setResponseConfig(req.getResponseConfig() != null ? req.getResponseConfig() : defaultResponseConfig(req));
+        if (req.getParamSchema() != null && !req.getParamSchema().isEmpty()) {
+            version.setParamSchema(req.getParamSchema());
+        }
         String operator = currentUser.username();
         if (version.getCreatedBy() == null) {
             version.setCreatedBy(operator);
@@ -420,5 +431,20 @@ public class ApiManagementService {
         doc.put("authHint", "请求头: X-Api-Key: <key> 或 Authorization: Bearer <key>");
         doc.put("pageParams", "page, pageSize (query 必填)");
         return doc;
+    }
+
+    public QueryResult testVersion(Long versionId, Map<String, Object> params) {
+        ApiVersion version = getVersion(versionId);
+        ApiDefinition def = getDefinition(version.getApiId());
+        authzService.requireApiWrite(def);
+        Datasource datasource = datasourceRepository.findById(version.getDatasourceId())
+                .orElseThrow(() -> new BusinessException("数据源不存在"));
+        Map<String, Object> config = version.getResponseConfig();
+        int timeoutSec = 30;
+        if (config != null && config.get("timeoutSec") instanceof Number n) {
+            timeoutSec = n.intValue();
+        }
+        return sqlExecutionService.executeTest(datasource, version.getSqlTemplate(),
+                params != null ? params : Map.of(), timeoutSec);
     }
 }

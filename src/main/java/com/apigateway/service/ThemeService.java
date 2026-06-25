@@ -131,6 +131,7 @@ public class ThemeService {
         if (authzService.isSuperAdmin()) {
             return;
         }
+        authzService.requireNotViewer();
         ThemeMembership m = membershipRepository.findByThemeIdAndUserId(themeId, authzService.currentUserId())
                 .orElseThrow(() -> new BusinessException(403, "无权操作该主题"));
         if (m.getRole() != ThemeMembershipRole.THEME_ADMIN && m.getRole() != ThemeMembershipRole.MEMBER) {

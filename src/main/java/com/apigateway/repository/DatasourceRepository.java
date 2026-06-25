@@ -8,4 +8,6 @@ import java.util.List;
 public interface DatasourceRepository extends JpaRepository<Datasource, Long> {
 
     List<Datasource> findByThemeIdIn(List<Long> themeIds);
+
+    List<Datasource> findByStatus(String status);
 }

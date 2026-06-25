@@ -1,8 +1,8 @@
 package com.apigateway.service;
 
+import com.apigateway.datasource.DatasourceDriverRegistry;
 import com.apigateway.dto.QueryResult;
 import com.apigateway.entity.Datasource;
-import com.apigateway.entity.ResponseMode;
 import com.apigateway.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,6 +15,7 @@ import java.util.*;
 public class SqlExecutionService {
 
     private final ConnectionPoolManager connectionPoolManager;
+    private final DatasourceDriverRegistry driverRegistry;
 
     public QueryResult execute(Datasource datasource, String sqlTemplate, Map<String, Object> params,
                                Map<String, Object> responseConfig, int page, int pageSize) {
@@ -26,8 +27,10 @@ public class SqlExecutionService {
         int offset = Math.max(0, page - 1) * effectivePageSize;
         assertWithinLimits(responseConfig, offset);
 
-        String pagedSql = wrapPagedSql(datasource, parsed.sql(), offset, effectivePageSize);
+        String pagedSql = driverRegistry.require(datasource.getType())
+                .wrapPagedSql(parsed.sql(), offset, effectivePageSize);
         int timeoutSec = intConfig(responseConfig, "timeoutSec", 60);
+        long total = countTotal(datasource, parsed.sql(), values, timeoutSec);
 
         try (Connection conn = connectionPoolManager.getConnection(datasource.getId());
              PreparedStatement ps = conn.prepareStatement(pagedSql)) {
@@ -37,9 +40,10 @@ public class SqlExecutionService {
             bind(ps, values);
             try (ResultSet rs = ps.executeQuery()) {
                 List<Map<String, Object>> rows = mapRows(rs);
-                boolean hasMore = rows.size() >= effectivePageSize;
+                boolean hasMore = (long) offset + rows.size() < total;
                 return QueryResult.builder()
                         .rows(rows)
+                        .total(total)
                         .page(page)
                         .pageSize(effectivePageSize)
                         .hasMore(hasMore)
@@ -51,6 +55,61 @@ public class SqlExecutionService {
             }
             throw new BusinessException("SQL 执行失败: " + e.getMessage());
         }
+    }
+
+    /** 管理台试跑：强制 LIMIT 1，不对外暴露。 */
+    public QueryResult executeTest(Datasource datasource, String sqlTemplate, Map<String, Object> params,
+                                   int timeoutSec) {
+        JdbcUrlBuilder.assertReadOnly(sqlTemplate);
+        SqlSecurityValidator.validateReadOnlySql(sqlTemplate);
+        SqlTemplateEngine.ParsedSql parsed = SqlTemplateEngine.parse(sqlTemplate, params);
+        List<Object> values = SqlTemplateEngine.bindValues(parsed, params);
+        String testSql = driverRegistry.require(datasource.getType())
+                .wrapPagedSql(parsed.sql(), 0, 1);
+        int effectiveTimeout = timeoutSec > 0 ? timeoutSec : 30;
+
+        try (Connection conn = connectionPoolManager.getConnection(datasource.getId());
+             PreparedStatement ps = conn.prepareStatement(testSql)) {
+            ps.setQueryTimeout(effectiveTimeout);
+            bind(ps, values);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<Map<String, Object>> rows = mapRows(rs);
+                return QueryResult.builder()
+                        .rows(rows)
+                        .total(rows.size())
+                        .page(1)
+                        .pageSize(1)
+                        .hasMore(false)
+                        .build();
+            }
+        } catch (SQLException e) {
+            if (isQueryTimeout(e)) {
+                throw new BusinessException("试跑超时，超过 " + effectiveTimeout + " 秒限制");
+            }
+            throw new BusinessException("试跑失败: " + e.getMessage());
+        }
+    }
+
+    private long countTotal(Datasource datasource, String sql, List<Object> values, int timeoutSec) {
+        String countSql = "SELECT COUNT(*) FROM (" + sql + ") AS _gw_cnt";
+        try (Connection conn = connectionPoolManager.getConnection(datasource.getId());
+             PreparedStatement ps = conn.prepareStatement(countSql)) {
+            if (timeoutSec > 0) {
+                ps.setQueryTimeout(timeoutSec);
+            }
+            bind(ps, values);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getLong(1);
+                }
+            }
+        } catch (SQLException e) {
+            if (isQueryTimeout(e)) {
+                throw new BusinessException("统计总数超时，超过 " + timeoutSec + " 秒限制");
+            }
+            throw new BusinessException("统计总数失败: " + e.getMessage());
+        }
+        return 0;
     }
 
     private boolean isQueryTimeout(SQLException e) {
@@ -73,13 +132,6 @@ public class SqlExecutionService {
         if (offset >= maxOffset) {
             throw new BusinessException("已超过最大偏移量 " + maxOffset + "，请缩小分页");
         }
-    }
-
-    private String wrapPagedSql(Datasource ds, String sql, int offset, int limit) {
-        return switch (ds.getType()) {
-            case DORIS -> sql + " LIMIT " + limit + " OFFSET " + offset;
-            case CLICKHOUSE -> sql + " LIMIT " + offset + ", " + limit;
-        };
     }
 
     private List<Map<String, Object>> mapRows(ResultSet rs) throws SQLException {

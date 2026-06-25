@@ -1,74 +1,67 @@
 <template>
   <div>
     <div class="toolbar">
-      <h2>API 限流 / 熔断 / 重试</h2>
-      <el-button v-if="auth.canEditPolicy.value" type="primary" :loading="saving" @click="save">保存配置</el-button>
-      <el-tag v-else type="info">只读（仅超级管理员可修改）</el-tag>
+      <h2>{{ t('policy.title') }}</h2>
+      <el-button v-if="auth.canEditPolicy.value" type="primary" :loading="saving" @click="save">{{ t('policy.save') }}</el-button>
+      <el-tag v-else type="info">{{ t('policy.readonlyHint') }}</el-tag>
     </div>
 
     <el-form v-if="loaded" :model="form" label-width="160px" class="policy-form" :disabled="!auth.canEditPolicy.value">
-      <el-divider content-position="left">QPS 限流</el-divider>
+      <el-divider content-position="left">{{ t('policy.qpsSection') }}</el-divider>
 
-      <el-form-item label="全局 QPS 限流">
+      <el-form-item :label="t('policy.globalQps')">
         <el-switch v-model="form.globalQpsEnabled" />
         <el-input-number v-model="form.globalQps" :min="1" :max="100000" :disabled="!form.globalQpsEnabled" class="num" />
-        <span class="hint">全平台每秒最大请求数，默认 1000</span>
+        <span class="hint">{{ t('policy.globalQpsHint') }}</span>
       </el-form-item>
 
-      <el-form-item label="单 IP QPS 限流">
+      <el-form-item :label="t('policy.ipQps')">
         <el-switch v-model="form.ipQpsEnabled" />
         <el-input-number v-model="form.ipQps" :min="1" :max="10000" :disabled="!form.ipQpsEnabled" class="num" />
-        <span class="hint">同一 IP 每秒最大请求数，默认 100</span>
+        <span class="hint">{{ t('policy.ipQpsHint') }}</span>
       </el-form-item>
 
-      <el-form-item label="单接口 QPS 限流">
+      <el-form-item :label="t('policy.apiQps')">
         <el-switch v-model="form.apiQpsEnabled" />
         <el-input-number v-model="form.apiQps" :min="1" :max="10000" :disabled="!form.apiQpsEnabled" class="num" />
-        <span class="hint">每个 API 每秒最大请求数，默认 50；可在 API 版本里单独覆盖</span>
+        <span class="hint">{{ t('policy.apiQpsHint') }}</span>
       </el-form-item>
 
-      <el-divider content-position="left">单 API 熔断</el-divider>
+      <el-divider content-position="left">{{ t('policy.circuitSection') }}</el-divider>
+      <p class="section-desc">{{ t('policy.circuitDesc') }}</p>
 
-      <p class="section-desc">按每个 API（apiCode）独立统计与熔断，互不影响。失败率基于最近 1 分钟内的 SQL 执行结果滚动计算。</p>
-
-      <el-form-item label="启用 API 熔断">
+      <el-form-item :label="t('policy.circuitEnabled')">
         <el-switch v-model="form.circuitEnabled" />
       </el-form-item>
-      <el-form-item label="失败率阈值(%)">
+      <el-form-item :label="t('policy.failureRate')">
         <el-input-number v-model="form.circuitFailureRate" :min="1" :max="100" :disabled="!form.circuitEnabled" />
-        <span class="hint">该 API 在最近 1 分钟窗口内失败率达到该比例即触发熔断，默认 50%</span>
+        <span class="hint">{{ t('policy.failureRateHint') }}</span>
       </el-form-item>
-      <el-form-item label="最小调用次数">
+      <el-form-item :label="t('policy.minCalls')">
         <el-input-number v-model="form.circuitMinCalls" :min="5" :max="1000" :disabled="!form.circuitEnabled" />
-        <span class="hint">该 API 在 1 分钟窗口内至少达到该次 SQL 执行后才计算失败率，默认 20</span>
+        <span class="hint">{{ t('policy.minCallsHint') }}</span>
       </el-form-item>
-      <el-form-item label="熔断等待(秒)">
+      <el-form-item :label="t('policy.waitSec')">
         <el-input-number v-model="form.circuitWaitSec" :min="5" :max="600" :disabled="!form.circuitEnabled" />
-        <span class="hint">该 API 熔断后多久进入半开试探，默认 30 秒</span>
+        <span class="hint">{{ t('policy.waitSecHint') }}</span>
       </el-form-item>
-      <el-form-item label="API 熔断返回内容">
-        <el-input
-          v-model="form.circuitFallback"
-          type="textarea"
-          :rows="4"
-          :disabled="!form.circuitEnabled"
-          placeholder='{"code":503,"message":"该 API 已熔断，请稍后重试","data":null}'
-        />
-        <span class="hint">该 API 熔断时直接返回的 JSON 响应体，可自定义 message 和 data</span>
+      <el-form-item :label="t('policy.fallback')">
+        <el-input v-model="form.circuitFallback" type="textarea" :rows="4" :disabled="!form.circuitEnabled" />
+        <span class="hint">{{ t('policy.fallbackHint') }}</span>
       </el-form-item>
 
-      <el-divider content-position="left">重试</el-divider>
+      <el-divider content-position="left">{{ t('policy.retrySection') }}</el-divider>
 
-      <el-form-item label="启用重试">
+      <el-form-item :label="t('policy.retryEnabled')">
         <el-switch v-model="form.retryEnabled" />
       </el-form-item>
-      <el-form-item label="最大重试次数">
+      <el-form-item :label="t('policy.retryMax')">
         <el-input-number v-model="form.retryMaxAttempts" :min="0" :max="5" :disabled="!form.retryEnabled" />
-        <span class="hint">不含首次请求，默认 2 次（共 3 次尝试）</span>
+        <span class="hint">{{ t('policy.retryMaxHint') }}</span>
       </el-form-item>
-      <el-form-item label="重试间隔(ms)">
+      <el-form-item :label="t('policy.retryInterval')">
         <el-input-number v-model="form.retryIntervalMs" :min="100" :max="10000" :step="100" :disabled="!form.retryEnabled" />
-        <span class="hint">仅对连接超时等可重试错误生效，默认 500ms</span>
+        <span class="hint">{{ t('policy.retryIntervalHint') }}</span>
       </el-form-item>
     </el-form>
   </div>
@@ -76,27 +69,20 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
 import { auth } from '../stores/auth'
 
+const { t } = useI18n()
 const loaded = ref(false)
 const saving = ref(false)
 const form = reactive({
-  globalQpsEnabled: true,
-  globalQps: 1000,
-  ipQpsEnabled: true,
-  ipQps: 100,
-  apiQpsEnabled: true,
-  apiQps: 50,
-  circuitEnabled: true,
-  circuitFailureRate: 50,
-  circuitMinCalls: 20,
-  circuitWaitSec: 30,
-  circuitFallback: '{"code":503,"message":"该 API 已熔断，请稍后重试","data":null}',
-  retryEnabled: true,
-  retryMaxAttempts: 2,
-  retryIntervalMs: 500
+  globalQpsEnabled: true, globalQps: 1000, ipQpsEnabled: true, ipQps: 100,
+  apiQpsEnabled: true, apiQps: 50, circuitEnabled: true, circuitFailureRate: 50,
+  circuitMinCalls: 20, circuitWaitSec: 30,
+  circuitFallback: '{"code":503,"message":"API circuit open","data":null}',
+  retryEnabled: true, retryMaxAttempts: 2, retryIntervalMs: 500
 })
 
 async function load() {
@@ -106,15 +92,11 @@ async function load() {
 }
 
 async function save() {
-  try {
-    JSON.parse(form.circuitFallback)
-  } catch {
-    return ElMessage.error('熔断返回内容必须是合法 JSON')
-  }
+  try { JSON.parse(form.circuitFallback) } catch { return ElMessage.error(t('policy.invalidJson')) }
   saving.value = true
   try {
     await http.put('/admin/gateway-policy', form)
-    ElMessage.success('保存成功')
+    ElMessage.success(t('common.saved'))
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {

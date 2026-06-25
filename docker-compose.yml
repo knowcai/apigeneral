@@ -2,6 +2,13 @@
 # 启动: docker compose up -d
 # 然后: mvn spring-boot:run -Dspring-boot.run.profiles=prod
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    profiles:
+      - redis
+
   postgres:
     image: postgres:16-alpine
     ports:

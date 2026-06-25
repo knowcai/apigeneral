@@ -1,67 +1,80 @@
 <template>
   <div>
     <div class="toolbar">
-      <h2>审批中心</h2>
+      <h2>{{ t('approval.title') }}</h2>
       <el-badge :value="myTasks.length" :hidden="!myTasks.length">
-        <el-tag type="warning">待我审批 {{ myTasks.length }}</el-tag>
+        <el-tag type="warning">{{ t('approval.pendingBadge') }} {{ myTasks.length }}</el-tag>
       </el-badge>
     </div>
 
     <el-tabs v-model="tab">
-      <el-tab-pane label="待我审批" name="mine">
-        <div class="hint block-hint">主题管理员与超级管理员可在此审批；任一管理员通过即可生效。</div>
+      <el-tab-pane :label="t('approval.tabMine')" name="mine">
+        <div class="hint block-hint">{{ t('approval.hintMine') }}</div>
         <el-table :data="myTasks" stripe>
-          <el-table-column prop="title" label="标题" min-width="200" />
-          <el-table-column prop="resourceType" label="资源" width="120" />
-          <el-table-column label="操作" width="90">
+          <el-table-column prop="title" :label="t('col.title')" min-width="200" />
+          <el-table-column prop="resourceType" :label="t('col.resource')" width="120" />
+          <el-table-column :label="t('col.action')" width="90">
             <template #default="{ row }">{{ actionLabel(row.action) }}</template>
           </el-table-column>
-          <el-table-column prop="submitterName" label="提交人" width="120" />
-          <el-table-column label="操作" width="200" fixed="right">
+          <el-table-column prop="submitterName" :label="t('col.submitter')" width="120" />
+          <el-table-column :label="t('col.actions')" width="200" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" @click="openTask(row)">查看</el-button>
-              <el-button link type="success" @click="act(row.taskId, true)">通过</el-button>
-              <el-button link type="danger" @click="act(row.taskId, false)">驳回</el-button>
+              <el-button link type="primary" @click="openTask(row)">{{ t('common.view') }}</el-button>
+              <el-button link type="success" @click="act(row.taskId, true)">{{ t('common.approve') }}</el-button>
+              <el-button link type="danger" @click="act(row.taskId, false)">{{ t('common.reject') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="!myTasks.length" description="暂无待审批任务" />
+        <el-empty v-if="!myTasks.length" :description="t('approval.emptyMine')" />
       </el-tab-pane>
 
-      <el-tab-pane label="进行中的审批" name="pending">
-        <div class="hint block-hint">提交人请在此查看自己发起的审批；审批人请在「待我审批」处理任务。</div>
+      <el-tab-pane :label="t('approval.tabPending')" name="pending">
+        <div class="hint block-hint">{{ t('approval.hintPending') }}</div>
         <el-table :data="pending" stripe>
-          <el-table-column prop="title" label="标题" min-width="200" />
-          <el-table-column prop="resourceType" label="资源" width="120" />
-          <el-table-column label="操作" width="90">
+          <el-table-column prop="title" :label="t('col.title')" min-width="200" />
+          <el-table-column prop="resourceType" :label="t('col.resource')" width="120" />
+          <el-table-column :label="t('col.action')" width="90">
             <template #default="{ row }">{{ actionLabel(row.action) }}</template>
           </el-table-column>
-          <el-table-column prop="submitterName" label="提交人" width="120" />
-          <el-table-column prop="createdAt" label="提交时间" width="170" />
-          <el-table-column label="操作" width="100">
+          <el-table-column prop="submitterName" :label="t('col.submitter')" width="120" />
+          <el-table-column prop="createdAt" :label="t('col.submittedAt')" width="170" />
+          <el-table-column :label="t('col.actions')" width="100">
             <template #default="{ row }">
-              <el-button link @click="openRequest(row)">详情</el-button>
+              <el-button link @click="openRequest(row)">{{ t('common.view') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="detailVisible" title="审批详情" width="720px">
+    <el-dialog v-model="detailVisible" :title="t('approval.detailTitle')" width="720px">
       <el-descriptions :column="2" border size="small">
-        <el-descriptions-item label="标题">{{ detail.title }}</el-descriptions-item>
-        <el-descriptions-item label="提交人">{{ detail.submitterName }}</el-descriptions-item>
-        <el-descriptions-item label="资源">{{ detail.resourceType }}</el-descriptions-item>
-        <el-descriptions-item label="操作">{{ actionLabel(detail.action) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('col.title')">{{ detail.title }}</el-descriptions-item>
+        <el-descriptions-item :label="t('col.submitter')">{{ detail.submitterName }}</el-descriptions-item>
+        <el-descriptions-item :label="t('col.resource')">{{ detail.resourceType }}</el-descriptions-item>
+        <el-descriptions-item :label="t('col.action')">{{ actionLabel(detail.action) }}</el-descriptions-item>
       </el-descriptions>
-      <div class="payload-title">变更内容</div>
+      <div v-if="detail.diff?.length" class="diff-block">
+        <div class="payload-title">{{ t('approval.diff') }}</div>
+        <el-table :data="detail.diff" stripe size="small" max-height="240">
+          <el-table-column prop="field" :label="t('approval.field')" width="140" />
+          <el-table-column :label="t('approval.before')" min-width="180">
+            <template #default="{ row }"><pre class="diff-cell">{{ formatVal(row.before) }}</pre></template>
+          </el-table-column>
+          <el-table-column :label="t('approval.after')" min-width="180">
+            <template #default="{ row }"><pre class="diff-cell">{{ formatVal(row.after) }}</pre></template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <div v-else class="hint">{{ t('approval.noDiff') }}</div>
+      <div class="payload-title">{{ t('approval.payloadTitle') }}</div>
       <pre class="payload">{{ formatPayload(detail.payload) }}</pre>
-      <el-input v-if="detail.taskId" v-model="comment" type="textarea" placeholder="审批意见（可选）" :rows="2" />
+      <el-input v-if="detail.taskId" v-model="comment" type="textarea" :placeholder="t('approval.commentPlaceholder')" :rows="2" />
       <template #footer>
-        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button @click="detailVisible = false">{{ t('common.close') }}</el-button>
         <template v-if="detail.taskId">
-          <el-button type="danger" @click="act(detail.taskId, false)">驳回</el-button>
-          <el-button type="success" @click="act(detail.taskId, true)">通过</el-button>
+          <el-button type="danger" @click="act(detail.taskId, false)">{{ t('common.reject') }}</el-button>
+          <el-button type="success" @click="act(detail.taskId, true)">{{ t('common.approve') }}</el-button>
         </template>
       </template>
     </el-dialog>
@@ -70,8 +83,11 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
+
+const { t, te } = useI18n()
 
 const tab = ref('mine')
 const myTasks = ref<any[]>([])
@@ -80,17 +96,10 @@ const detailVisible = ref(false)
 const comment = ref('')
 const detail = reactive<any>({})
 
-const ACTION_LABELS: Record<string, string> = {
-  CREATE: '新建',
-  UPDATE: '修改',
-  PUBLISH: '发布',
-  SUSPEND: '关闭',
-  RESUME: '重启'
-}
-
 function actionLabel(action?: string) {
   if (!action) return ''
-  return ACTION_LABELS[action] || action
+  const key = `approval.actions.${action}`
+  return te(key) ? t(key) : action
 }
 
 function formatPayload(raw?: string) {
@@ -100,6 +109,12 @@ function formatPayload(raw?: string) {
   } catch {
     return raw
   }
+}
+
+function formatVal(val: unknown) {
+  if (val == null) return ''
+  if (typeof val === 'object') return JSON.stringify(val, null, 2)
+  return String(val)
 }
 
 async function load() {
@@ -120,16 +135,20 @@ function openRequest(row: any) {
 }
 
 async function act(taskId: number, approved: boolean) {
-  const label = approved ? '通过' : '驳回'
+  const label = approved ? t('common.approve') : t('common.reject')
   try {
-    await ElMessageBox.confirm(`确定${label}该审批？`, '确认', { type: approved ? 'info' : 'warning' })
+    await ElMessageBox.confirm(
+      approved ? t('approval.confirmApprove') : t('approval.confirmReject'),
+      t('common.confirm'),
+      { type: approved ? 'info' : 'warning' }
+    )
     const url = `/admin/approvals/tasks/${taskId}/${approved ? 'approve' : 'reject'}`
     await http.post(url, { comment: comment.value || undefined })
     detailVisible.value = false
     await load()
-    ElMessage.success(`已${label}`)
+    ElMessage.success(approved ? t('approval.approved') : t('approval.rejected'))
   } catch (e: any) {
-    if (e !== 'cancel') ElMessage.error(e.message || '操作失败')
+    if (e !== 'cancel') ElMessage.error(e.message || t('common.operationFailed'))
   }
 }
 
@@ -151,4 +170,6 @@ onMounted(load)
 }
 .hint { font-size: 12px; color: #737373; }
 .block-hint { margin-bottom: 12px; padding: 10px 12px; background: #fafafa; border-radius: 6px; }
+.diff-cell { margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+.diff-block { margin-bottom: 12px; }
 </style>

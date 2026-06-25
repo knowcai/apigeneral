@@ -1,5 +1,6 @@
 package com.apigateway.service;
 
+import com.apigateway.config.ConsumerKeyProperties;
 import com.apigateway.dto.ConsumerCreateResponse;
 import com.apigateway.dto.ConsumerRequest;
 import com.apigateway.dto.ConsumerResponse;
@@ -28,6 +29,7 @@ public class ConsumerService {
     private final ApiDefinitionRepository apiDefinitionRepository;
     private final AuthzService authzService;
     private final AuditLogService auditLogService;
+    private final ConsumerKeyProperties keyProperties;
 
     public List<ConsumerResponse> list() {
         authzService.requireSuperAdmin();
@@ -106,7 +108,13 @@ public class ConsumerService {
         if (rawKey == null || rawKey.isBlank()) {
             return Optional.empty();
         }
-        return consumerRepository.findByApiKeyHash(ApiKeySupport.hashKey(rawKey.trim()))
+        String trimmed = rawKey.trim();
+        Optional<Consumer> found = consumerRepository.findByApiKeyHash(ApiKeySupport.hashKey(trimmed, keyProperties.getKeyPepper()))
+                .filter(c -> "ACTIVE".equals(c.getStatus()));
+        if (found.isPresent()) {
+            return found;
+        }
+        return consumerRepository.findByApiKeyHash(ApiKeySupport.legacyHashKey(trimmed))
                 .filter(c -> "ACTIVE".equals(c.getStatus()));
     }
 
@@ -150,7 +158,7 @@ public class ConsumerService {
     }
 
     private void applyKey(Consumer consumer, String rawKey) {
-        consumer.setApiKeyHash(ApiKeySupport.hashKey(rawKey));
+        consumer.setApiKeyHash(ApiKeySupport.hashKey(rawKey, keyProperties.getKeyPepper()));
         consumer.setKeyPrefix(ApiKeySupport.keyPrefix(rawKey));
     }
 

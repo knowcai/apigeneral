@@ -1,7 +1,7 @@
 package com.apigateway.security;
 
-import com.apigateway.entity.Consumer;
 import com.apigateway.service.ConsumerService;
+import com.apigateway.web.HttpErrorWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,6 +18,7 @@ import java.io.IOException;
 public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
     private final ConsumerService consumerService;
+    private final HttpErrorWriter errorWriter;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -30,12 +31,13 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String rawKey = extractKey(request);
         if (rawKey == null) {
-            writeJson(response, 401, "缺少 API Key，请通过 Header 传入：Authorization: Bearer <key> 或 X-Api-Key: <key>");
+            errorWriter.write(request, response, 401,
+                    "缺少 API Key，请通过 Header 传入：Authorization: Bearer <key> 或 X-Api-Key: <key>");
             return;
         }
-        Consumer consumer = consumerService.authenticate(rawKey).orElse(null);
+        var consumer = consumerService.authenticate(rawKey).orElse(null);
         if (consumer == null) {
-            writeJson(response, 401, "API Key 无效或已禁用");
+            errorWriter.write(request, response, 401, "API Key 无效或已禁用");
             return;
         }
         request.setAttribute(ApiConsumerContext.REQUEST_ATTR, ApiConsumerContext.from(consumer));
@@ -56,14 +58,5 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
         }
         return null;
     }
-
-    private void writeJson(HttpServletResponse response, int status, String message) throws IOException {
-        response.setStatus(status);
-        response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":" + status + ",\"message\":\"" + escapeJson(message) + "\",\"data\":null}");
-    }
-
-    private String escapeJson(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
 }
+

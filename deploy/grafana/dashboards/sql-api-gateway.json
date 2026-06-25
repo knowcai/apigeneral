@@ -1,0 +1,58 @@
+{
+  "title": "SQL API Gateway",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "API QPS by status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(gateway_api_requests_total[1m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API P99 latency (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(gateway_api_request_duration_seconds_bucket[5m])) by (le, api_code))",
+          "legendFormat": "{{api_code}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Global pool in use",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "gateway_pool_global_in_use" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Global pool available",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        { "expr": "gateway_pool_global_available" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Datasource pool active connections",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "gateway_datasource_pool_active",
+          "legendFormat": "{{pool}}"
+        }
+      ]
+    }
+  ]
+}

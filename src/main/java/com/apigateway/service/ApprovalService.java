@@ -28,6 +28,7 @@ public class ApprovalService {
     private final SysUserRepository userRepository;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
+    private final ApprovalDiffService approvalDiffService;
 
     public ApprovalService(
             ApprovalRequestRepository requestRepository,
@@ -39,7 +40,8 @@ public class ApprovalService {
             CurrentUser currentUser,
             SysUserRepository userRepository,
             AuditLogService auditLogService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ApprovalDiffService approvalDiffService) {
         this.requestRepository = requestRepository;
         this.taskRepository = taskRepository;
         this.membershipRepository = membershipRepository;
@@ -50,6 +52,7 @@ public class ApprovalService {
         this.userRepository = userRepository;
         this.auditLogService = auditLogService;
         this.objectMapper = objectMapper;
+        this.approvalDiffService = approvalDiffService;
     }
 
     @Transactional(noRollbackFor = BusinessException.class)
@@ -276,7 +279,10 @@ public class ApprovalService {
             m.put("resourceType", r.getResourceType());
             m.put("action", r.getAction());
             m.put("themeId", r.getThemeId());
+            m.put("resourceId", r.getResourceId());
             m.put("payload", r.getPayload());
+            m.put("diff", approvalDiffService.buildDiff(r.getResourceType(), r.getAction(),
+                    r.getResourceId(), r.getPayload()));
             m.put("submitterId", r.getSubmitterId());
             userRepository.findById(r.getSubmitterId()).ifPresent(u -> m.put("submitterName", u.getDisplayName()));
         }
@@ -290,8 +296,11 @@ public class ApprovalService {
         m.put("themeId", r.getThemeId());
         m.put("resourceType", r.getResourceType());
         m.put("action", r.getAction());
+        m.put("resourceId", r.getResourceId());
         m.put("status", r.getStatus());
         m.put("payload", r.getPayload());
+        m.put("diff", approvalDiffService.buildDiff(r.getResourceType(), r.getAction(),
+                r.getResourceId(), r.getPayload()));
         m.put("createdAt", r.getCreatedAt());
         userRepository.findById(r.getSubmitterId()).ifPresent(u -> m.put("submitterName", u.getDisplayName()));
         return m;

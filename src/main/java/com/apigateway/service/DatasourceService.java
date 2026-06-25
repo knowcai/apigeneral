@@ -2,6 +2,7 @@ package com.apigateway.service;
 
 
 
+import com.apigateway.datasource.DatasourceDriverRegistry;
 import com.apigateway.dto.DatasourceRequest;
 
 import com.apigateway.entity.ApprovalAction;
@@ -53,6 +54,8 @@ public class DatasourceService {
     private final ThemeService themeService;
 
     private final @Lazy ApprovalService approvalService;
+
+    private final DatasourceDriverRegistry driverRegistry;
 
 
 
@@ -290,31 +293,7 @@ public class DatasourceService {
 
         authzService.requireAuthenticated();
 
-        Map<String, Object> template = new HashMap<>();
-
-        template.put("pool.minIdle", 2);
-
-        template.put("pool.maxActive", 10);
-
-        template.put("connectTimeoutMs", 5000);
-
-        if ("DORIS".equalsIgnoreCase(type)) {
-
-            template.put("protocol", "mysql");
-
-            template.put("queryTimeoutSec", 300);
-
-        } else if ("CLICKHOUSE".equalsIgnoreCase(type)) {
-
-            template.put("protocol", "http");
-
-            template.put("compress", true);
-
-            template.put("maxThreads", 4);
-
-        }
-
-        return template;
+        return new HashMap<>(driverRegistry.require(type).defaultParams());
 
     }
 

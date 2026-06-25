@@ -3,6 +3,7 @@ import MainLayout from '../layout/MainLayout.vue'
 import LoginView from '../views/LoginView.vue'
 import DatasourceView from '../views/DatasourceView.vue'
 import ApiView from '../views/ApiView.vue'
+import DashboardView from '../views/DashboardView.vue'
 import LogView from '../views/LogView.vue'
 import PolicyView from '../views/PolicyView.vue'
 import UserView from '../views/UserView.vue'
@@ -27,6 +28,7 @@ const router = createRouter({
         { path: 'apis', component: ApiView },
         { path: 'themes', component: ThemeView },
         { path: 'approvals', component: ApprovalView },
+        { path: 'dashboard', component: DashboardView },
         { path: 'logs', component: LogView },
         { path: 'policy', component: PolicyView },
         { path: 'consumers', component: ConsumerView, meta: { superAdmin: true } },

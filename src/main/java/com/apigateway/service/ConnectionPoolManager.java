@@ -1,7 +1,11 @@
 package com.apigateway.service;
 
+import com.apigateway.datasource.DatasourceDriverRegistry;
 import com.apigateway.entity.Datasource;
 import com.apigateway.exception.BusinessException;
+import com.apigateway.metrics.GatewayMetrics;
+import com.apigateway.pool.BudgetReleasingConnection;
+import com.apigateway.pool.GlobalConnectionBudget;
 import com.apigateway.repository.DatasourceRepository;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -12,6 +16,10 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -20,10 +28,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ConnectionPoolManager {
 
     private final DatasourceRepository datasourceRepository;
+    private final DatasourceDriverRegistry driverRegistry;
+    private final GlobalConnectionBudget globalConnectionBudget;
+    private final GatewayMetrics gatewayMetrics;
     private final Map<Long, HikariDataSource> pools = new ConcurrentHashMap<>();
 
     public Connection getConnection(Long datasourceId) throws SQLException {
-        return poolFor(datasourceId).getConnection();
+        globalConnectionBudget.acquire();
+        try {
+            Connection raw = poolFor(datasourceId).getConnection();
+            return BudgetReleasingConnection.wrap(raw, globalConnectionBudget::release);
+        } catch (SQLException e) {
+            globalConnectionBudget.release();
+            throw e;
+        }
     }
 
     public void evict(Long datasourceId) {
@@ -37,11 +55,12 @@ public class ConnectionPoolManager {
         HikariDataSource pool = null;
         try {
             pool = createPool(ds);
+            String checkSql = driverRegistry.require(ds.getType()).healthCheckSql();
             try (Connection conn = pool.getConnection();
-                 PreparedStatement ps = conn.prepareStatement("SELECT 1");
+                 PreparedStatement ps = conn.prepareStatement(checkSql);
                  ResultSet rs = ps.executeQuery()) {
-                if (!rs.next() || rs.getInt(1) != 1) {
-                    throw new BusinessException("连接测试失败: SELECT 1 无有效结果");
+                if (!rs.next()) {
+                    throw new BusinessException("连接测试失败: 健康检查无有效结果");
                 }
                 return true;
             }
@@ -81,10 +100,11 @@ public class ConnectionPoolManager {
     }
 
     private HikariDataSource createPool(Datasource ds) {
+        var driver = driverRegistry.require(ds.getType());
         Map<String, Object> params = ds.getDefaultParams() != null ? ds.getDefaultParams() : Map.of();
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(JdbcUrlBuilder.build(ds));
-        config.setDriverClassName(JdbcUrlBuilder.driverClass(ds.getType()));
+        config.setJdbcUrl(driver.buildJdbcUrl(ds));
+        config.setDriverClassName(driver.driverClassName());
         config.setUsername(ds.getUsername());
         config.setPassword(ds.getPassword());
         config.setMaximumPoolSize(intParam(params, "pool.maxActive", 10));
@@ -92,7 +112,10 @@ public class ConnectionPoolManager {
         config.setConnectionTimeout(longParam(params, "connectTimeoutMs", 5000L));
         String poolName = ds.getId() != null ? "ds-" + ds.getId() : "ds-test-" + System.nanoTime();
         config.setPoolName(poolName);
-        return new HikariDataSource(config);
+        config.setRegisterMbeans(true);
+        HikariDataSource dataSource = new HikariDataSource(config);
+        gatewayMetrics.registerHikariPool(poolName, dataSource);
+        return dataSource;
     }
 
     private int intParam(Map<String, Object> params, String key, int defaultValue) {
@@ -109,5 +132,39 @@ public class ConnectionPoolManager {
             return n.longValue();
         }
         return defaultValue;
+    }
+
+    /** 当前已创建的数据源连接池实时状态（供监控大盘展示）。 */
+    public List<Map<String, Object>> poolSnapshots() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (Map.Entry<Long, HikariDataSource> entry : pools.entrySet()) {
+            Long dsId = entry.getKey();
+            HikariDataSource ds = entry.getValue();
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("datasourceId", dsId);
+            datasourceRepository.findById(dsId).ifPresent(meta -> {
+                item.put("datasourceName", meta.getName());
+                item.put("datasourceType", meta.getType() != null ? meta.getType().name() : "");
+            });
+            item.put("poolName", ds.getPoolName());
+            var mx = ds.getHikariPoolMXBean();
+            if (mx != null) {
+                item.put("active", mx.getActiveConnections());
+                item.put("idle", mx.getIdleConnections());
+                item.put("total", mx.getTotalConnections());
+                int max = ds.getMaximumPoolSize();
+                item.put("max", max);
+                item.put("usagePercent", max > 0 ? Math.round(mx.getActiveConnections() * 1000.0 / max) / 10.0 : 0);
+            } else {
+                item.put("active", 0);
+                item.put("idle", 0);
+                item.put("total", 0);
+                item.put("max", ds.getMaximumPoolSize());
+                item.put("usagePercent", 0);
+            }
+            list.add(item);
+        }
+        list.sort(Comparator.comparing(m -> String.valueOf(m.getOrDefault("datasourceName", ""))));
+        return list;
     }
 }

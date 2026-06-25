@@ -18,6 +18,7 @@ public class ApiVersionRequest {
 
     private ResponseMode responseMode = ResponseMode.PAGE;
     private Map<String, Object> responseConfig;
+    private Map<String, Object> paramSchema;
     private String createdBy;
     private String updatedBy;
 }

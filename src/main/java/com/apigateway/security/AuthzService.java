@@ -23,6 +23,13 @@ public class AuthzService {
         currentUser.requireUser();
     }
 
+    public void requireNotViewer() {
+        requireAuthenticated();
+        if (currentUser.isApiViewer()) {
+            throw new BusinessException(403, "只读用户无权修改");
+        }
+    }
+
     public boolean isSuperAdmin() {
         return currentUser.isSuperAdmin();
     }
@@ -36,7 +43,7 @@ public class AuthzService {
     }
 
     public void requireApiWrite(ApiDefinition def) {
-        requireAuthenticated();
+        requireNotViewer();
         if (isSuperAdmin()) {
             return;
         }
@@ -48,7 +55,7 @@ public class AuthzService {
     }
 
     public void requireApiCreate() {
-        requireAuthenticated();
+        requireNotViewer();
         if (isSuperAdmin()) {
             return;
         }

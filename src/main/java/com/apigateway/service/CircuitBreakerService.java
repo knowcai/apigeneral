@@ -1,42 +1,37 @@
 package com.apigateway.service;
 
 import com.apigateway.entity.GatewayPolicy;
+import com.apigateway.service.distributed.CircuitBreakerSnapshot;
+import com.apigateway.service.distributed.CircuitBreakerStorePort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 单 API 熔断器：按 {@code apiCode} 独立维护状态，互不影响。
- * <p>
- * 失败率在「最近 1 分钟」滚动窗口内计算，仅统计已进入 SQL 执行的成功/失败结果；
- * 限流、参数校验、熔断拦截等不计入窗口。
+ * 状态存储可切换为 Redis（{@code gateway.redis.enabled=true}）以支持多实例。
  */
 @Component
 @RequiredArgsConstructor
 public class CircuitBreakerService {
 
-    /** 失败率滚动统计窗口：最近 1 分钟内的 SQL 执行结果。 */
     private static final long STATS_WINDOW_MS = 60_000L;
 
     private final ObjectMapper objectMapper;
-    /** key = apiCode，每个 API 一份独立的熔断状态与统计窗口。 */
-    private final ConcurrentHashMap<String, CircuitState> states = new ConcurrentHashMap<>();
+    private final CircuitBreakerStorePort store;
 
-    /** 判断该 API 当前是否允许执行 SQL（CLOSED / HALF_OPEN 放行，OPEN 且未到恢复时间则拒绝）。 */
     public boolean allowRequest(String apiCode, GatewayPolicy policy) {
         if (!Boolean.TRUE.equals(policy.getCircuitEnabled())) {
             return true;
         }
-        CircuitState state = states.computeIfAbsent(apiCode, k -> new CircuitState());
-        synchronized (state) {
-            if (state.status == Status.OPEN) {
-                if (System.currentTimeMillis() >= state.openUntilMs) {
-                    state.status = Status.HALF_OPEN;
+        synchronized (lockFor(apiCode)) {
+            CircuitBreakerSnapshot state = store.load(apiCode);
+            if (state.getStatus() == CircuitBreakerSnapshot.Status.OPEN) {
+                if (System.currentTimeMillis() >= state.getOpenUntilMs()) {
+                    state.setStatus(CircuitBreakerSnapshot.Status.HALF_OPEN);
+                    store.save(apiCode, state);
                 } else {
                     return false;
                 }
@@ -45,48 +40,43 @@ public class CircuitBreakerService {
         }
     }
 
-    /** SQL 执行成功后记录；半开试探成功则关闭熔断并清空该 API 的统计窗口。 */
     public void recordSuccess(String apiCode) {
-        CircuitState state = states.get(apiCode);
-        if (state == null) {
-            return;
-        }
-        synchronized (state) {
-            if (state.status == Status.HALF_OPEN) {
-                state.reset();
+        synchronized (lockFor(apiCode)) {
+            CircuitBreakerSnapshot state = store.load(apiCode);
+            if (state.getStatus() == CircuitBreakerSnapshot.Status.HALF_OPEN) {
+                reset(state);
+                store.save(apiCode, state);
             } else {
-                state.record(true);
+                record(state, true);
+                store.save(apiCode, state);
             }
         }
     }
 
-    /**
-     * SQL 执行失败后记录，并在滚动窗口内重新计算该 API 的失败率；
-     * 达到阈值则将该 API 置为 OPEN。半开试探失败则直接再次熔断。
-     */
     public void recordFailure(String apiCode, GatewayPolicy policy) {
         if (!Boolean.TRUE.equals(policy.getCircuitEnabled())) {
             return;
         }
-        CircuitState state = states.computeIfAbsent(apiCode, k -> new CircuitState());
-        synchronized (state) {
-            if (state.status == Status.HALF_OPEN) {
+        synchronized (lockFor(apiCode)) {
+            CircuitBreakerSnapshot state = store.load(apiCode);
+            if (state.getStatus() == CircuitBreakerSnapshot.Status.HALF_OPEN) {
                 open(state, policy);
+                store.save(apiCode, state);
                 return;
             }
-            state.record(false);
-            int total = state.totalCalls();
+            record(state, false);
+            int total = state.getRecentCalls().size();
             if (total >= policy.getCircuitMinCalls()) {
-                int failures = state.failureCount();
+                int failures = failureCount(state);
                 int failureRate = (int) (failures * 100.0 / total);
                 if (failureRate >= policy.getCircuitFailureRate()) {
                     open(state, policy);
                 }
             }
+            store.save(apiCode, state);
         }
     }
 
-    /** 该 API 熔断时返回给客户端的 JSON 响应体。 */
     public Object parseFallback(GatewayPolicy policy) {
         try {
             return objectMapper.readValue(policy.getCircuitFallback(), Map.class);
@@ -95,51 +85,41 @@ public class CircuitBreakerService {
         }
     }
 
-    private void open(CircuitState state, GatewayPolicy policy) {
-        state.status = Status.OPEN;
-        state.openUntilMs = System.currentTimeMillis() + policy.getCircuitWaitSec() * 1000L;
+    private void open(CircuitBreakerSnapshot state, GatewayPolicy policy) {
+        state.setStatus(CircuitBreakerSnapshot.Status.OPEN);
+        state.setOpenUntilMs(System.currentTimeMillis() + policy.getCircuitWaitSec() * 1000L);
     }
 
-    private enum Status { CLOSED, OPEN, HALF_OPEN }
+    private void record(CircuitBreakerSnapshot state, boolean success) {
+        long now = System.currentTimeMillis();
+        pruneExpired(state, now);
+        state.getRecentCalls().addLast(new CircuitBreakerSnapshot.CallRecord(now, success));
+    }
 
-    private static class CircuitState {
-        private Status status = Status.CLOSED;
-        private long openUntilMs;
-        private final Deque<CallRecord> recentCalls = new ArrayDeque<>();
-
-        private record CallRecord(long timestampMs, boolean success) {}
-
-        void record(boolean success) {
-            long now = System.currentTimeMillis();
-            pruneExpired(now);
-            recentCalls.addLast(new CallRecord(now, success));
+    private void pruneExpired(CircuitBreakerSnapshot state, long now) {
+        while (!state.getRecentCalls().isEmpty()
+                && now - state.getRecentCalls().peekFirst().timestampMs() >= STATS_WINDOW_MS) {
+            state.getRecentCalls().pollFirst();
         }
+    }
 
-        void pruneExpired(long now) {
-            while (!recentCalls.isEmpty() && now - recentCalls.peekFirst().timestampMs >= STATS_WINDOW_MS) {
-                recentCalls.pollFirst();
+    private int failureCount(CircuitBreakerSnapshot state) {
+        int failures = 0;
+        for (CircuitBreakerSnapshot.CallRecord record : state.getRecentCalls()) {
+            if (!record.success()) {
+                failures++;
             }
         }
+        return failures;
+    }
 
-        int totalCalls() {
-            return recentCalls.size();
-        }
+    private void reset(CircuitBreakerSnapshot state) {
+        state.setStatus(CircuitBreakerSnapshot.Status.CLOSED);
+        state.setOpenUntilMs(0);
+        state.getRecentCalls().clear();
+    }
 
-        int failureCount() {
-            int failures = 0;
-            for (CallRecord record : recentCalls) {
-                if (!record.success()) {
-                    failures++;
-                }
-            }
-            return failures;
-        }
-
-        void reset() {
-            status = Status.CLOSED;
-            openUntilMs = 0;
-            recentCalls.clear();
-        }
+    private Object lockFor(String apiCode) {
+        return ("circuit:" + apiCode).intern();
     }
 }
-

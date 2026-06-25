@@ -4,6 +4,7 @@ import com.apigateway.dto.QueryResult;
 import com.apigateway.entity.ApiDefinition;
 import com.apigateway.entity.ApiVersion;
 import com.apigateway.entity.Datasource;
+import com.apigateway.metrics.GatewayMetrics;
 import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.DatasourceRepository;
 import com.apigateway.security.ApiConsumerContext;
@@ -24,6 +25,7 @@ public class DynamicApiService {
     private final GatewayProtectionService protectionService;
     private final InFlightRequestTracker inFlightRequestTracker;
     private final ConsumerService consumerService;
+    private final GatewayMetrics gatewayMetrics;
 
     public QueryResult invoke(String theme, String apiCode, Integer versionNo, Map<String, Object> params,
                               Integer page, Integer pageSize, HttpServletRequest request) {
@@ -69,6 +71,7 @@ public class DynamicApiService {
             }
 
             PaginationParams pagination = resolvePaginationParams(config, page, pageSize);
+            ParamSchemaValidator.validate(version.getSqlTemplate(), version.getParamSchema(), mergedParams);
 
             sqlAttempted = true;
             QueryResult result = protectionService.executeWithRetry(() ->
@@ -79,13 +82,16 @@ public class DynamicApiService {
             long bytes = accessLogService.estimateBytes(result);
             logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
                     result.getRows().size(), bytes, "SUCCESS", null);
+            gatewayMetrics.recordApiRequest(apiCode, "SUCCESS", System.currentTimeMillis() - start);
             return result;
         } catch (BusinessException e) {
             if (sqlAttempted && shouldCountExecutionFailure(e)) {
                 protectionService.onFailure(apiCode);
             }
+            String status = statusLabel(e);
             logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
-                    0, 0, statusLabel(e), e.getMessage());
+                    0, 0, status, e.getMessage());
+            gatewayMetrics.recordApiRequest(apiCode, status, System.currentTimeMillis() - start);
             throw e;
         } catch (Exception e) {
             if (sqlAttempted) {
@@ -93,6 +99,7 @@ public class DynamicApiService {
             }
             logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
                     0, 0, "ERROR", e.getMessage());
+            gatewayMetrics.recordApiRequest(apiCode, "ERROR", System.currentTimeMillis() - start);
             throw e;
         }
     }

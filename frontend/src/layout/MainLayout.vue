@@ -5,45 +5,53 @@
       <el-menu :default-active="route.path" router class="side-menu">
         <el-menu-item index="/datasources">
           <el-icon><Connection /></el-icon>
-          <span>连接串管理</span>
+          <span>{{ t('nav.datasources') }}</span>
         </el-menu-item>
         <el-menu-item index="/apis">
           <el-icon><Document /></el-icon>
-          <span>API / SQL</span>
+          <span>{{ t('nav.apis') }}</span>
         </el-menu-item>
         <el-menu-item index="/themes">
           <el-icon><Folder /></el-icon>
-          <span>主题管理</span>
+          <span>{{ t('nav.themes') }}</span>
         </el-menu-item>
         <el-menu-item index="/approvals">
           <el-icon><CircleCheck /></el-icon>
-          <span>审批中心</span>
+          <span>{{ t('nav.approvals') }}</span>
+        </el-menu-item>
+        <el-menu-item index="/dashboard">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>{{ t('nav.dashboard') }}</span>
         </el-menu-item>
         <el-menu-item index="/logs">
           <el-icon><DataLine /></el-icon>
-          <span>访问监控</span>
+          <span>{{ t('nav.logs') }}</span>
         </el-menu-item>
         <el-menu-item index="/policy">
           <el-icon><Setting /></el-icon>
-          <span>API 限流熔断</span>
+          <span>{{ t('nav.policy') }}</span>
         </el-menu-item>
         <el-menu-item index="/audit">
           <el-icon><List /></el-icon>
-          <span>操作审计</span>
+          <span>{{ t('nav.audit') }}</span>
         </el-menu-item>
         <el-menu-item v-if="auth.canManageUsers.value" index="/consumers">
           <el-icon><Key /></el-icon>
-          <span>调用方 / Key</span>
+          <span>{{ t('nav.consumers') }}</span>
         </el-menu-item>
         <el-menu-item v-if="auth.canManageUsers.value" index="/users">
           <el-icon><User /></el-icon>
-          <span>用户管理</span>
+          <span>{{ t('nav.users') }}</span>
         </el-menu-item>
       </el-menu>
       <div class="user-bar">
         <div class="user-name">{{ auth.state.user?.displayName || auth.state.user?.username }}</div>
         <div class="user-role">{{ roleLabel }}</div>
-        <el-button link class="logout" @click="logout">退出</el-button>
+        <el-select v-model="locale" size="small" class="locale-select" @change="onLocaleChange">
+          <el-option label="中文" value="zh-CN" />
+          <el-option label="English" value="en-US" />
+        </el-select>
+        <el-button link class="logout" @click="logout">{{ t('nav.logout') }}</el-button>
       </div>
     </el-aside>
     <el-main class="main">
@@ -53,18 +61,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { auth } from '../stores/auth'
+import { setLocale } from '../locales'
 
 const route = useRoute()
 const router = useRouter()
+const { t, locale: i18nLocale } = useI18n()
+const locale = ref(i18nLocale.value as string)
 
 const roleLabel = computed(() => {
   const r = auth.state.user?.role
-  if (r === 'SUPER_ADMIN') return '超级管理员'
-  return '普通用户'
+  if (r === 'SUPER_ADMIN') return t('role.superAdmin')
+  if (r === 'API_VIEWER') return t('role.viewer')
+  return t('role.user')
 })
+
+function onLocaleChange(lang: string) {
+  setLocale(lang as 'zh-CN' | 'en-US')
+}
 
 function logout() {
   auth.clear()
@@ -110,7 +127,8 @@ function logout() {
 }
 
 .user-name { color: #fff; font-weight: 600; margin-bottom: 4px; }
-.logout { color: #a3a3a3 !important; padding: 0; margin-top: 8px; }
+.locale-select { width: 100%; margin: 8px 0; }
+.logout { color: #a3a3a3 !important; padding: 0; margin-top: 4px; }
 
 :deep(.el-menu-item) {
   color: #a3a3a3;

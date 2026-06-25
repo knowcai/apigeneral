@@ -1,7 +1,7 @@
 {
   "name": "sql-api-gateway-ui",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.3",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -10,10 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
     "axios": "^1.7.7",
     "element-plus": "^2.8.4",
-    "@element-plus/icons-vue": "^2.3.1",
     "vue": "^3.5.12",
+    "vue-i18n": "^9.14.4",
     "vue-router": "^4.4.5"
   },
   "devDependencies": {
