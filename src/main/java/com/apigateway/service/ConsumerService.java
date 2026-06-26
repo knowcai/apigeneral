@@ -1,23 +1,23 @@
 package com.apigateway.service;
 
 import com.apigateway.config.ConsumerKeyProperties;
-import com.apigateway.dto.ConsumerCreateResponse;
-import com.apigateway.dto.ConsumerRequest;
 import com.apigateway.dto.ConsumerResponse;
-import com.apigateway.entity.ApiDefinition;
 import com.apigateway.entity.Consumer;
-import com.apigateway.entity.ConsumerApiGrant;
 import com.apigateway.exception.BusinessException;
+import com.apigateway.repository.ApiAccessLogRepository;
 import com.apigateway.repository.ApiDefinitionRepository;
 import com.apigateway.repository.ConsumerApiGrantRepository;
 import com.apigateway.repository.ConsumerRepository;
-import com.apigateway.security.ApiKeySupport;
+import com.apigateway.repository.ThemeRepository;
 import com.apigateway.security.AuthzService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -27,13 +27,39 @@ public class ConsumerService {
     private final ConsumerRepository consumerRepository;
     private final ConsumerApiGrantRepository grantRepository;
     private final ApiDefinitionRepository apiDefinitionRepository;
+    private final ThemeRepository themeRepository;
     private final AuthzService authzService;
-    private final AuditLogService auditLogService;
-    private final ConsumerKeyProperties keyProperties;
+    private final ThemeApiKeyService themeApiKeyService;
+    private final ApiAccessLogRepository accessLogRepository;
+    private final ConsumerKeyProperties consumerKeyProperties;
+
+    public Map<String, Object> legacyMigrationStats(int hours) {
+        authzService.requireSuperAdmin();
+        int effectiveHours = Math.min(Math.max(hours, 1), 168);
+        LocalDateTime since = LocalDateTime.now().minusHours(effectiveHours);
+        long legacyCalls = accessLogRepository.countByCreatedAtAfterAndAuthMode(since, "LEGACY");
+        long themeCalls = accessLogRepository.countByCreatedAtAfterAndAuthMode(since, "THEME_KEY");
+        long total = legacyCalls + themeCalls;
+        long legacyConsumers = consumerRepository.findAll().stream().filter(c -> c.getThemeId() == null).count();
+        long themeConsumers = consumerRepository.findAll().stream().filter(c -> c.getThemeId() != null).count();
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("hours", effectiveHours);
+        stats.put("legacyKeyCalls", legacyCalls);
+        stats.put("themeKeyCalls", themeCalls);
+        stats.put("legacyKeyPercent", total > 0 ? Math.round(legacyCalls * 1000.0 / total) / 10.0 : 0);
+        stats.put("legacyConsumerCount", legacyConsumers);
+        stats.put("themeKeyCount", themeConsumers);
+        stats.put("legacyEnabled", consumerKeyProperties.isLegacyEnabled());
+        stats.put("legacySunsetDate", consumerKeyProperties.getLegacySunsetDate());
+        return stats;
+    }
 
     public List<ConsumerResponse> list() {
         authzService.requireSuperAdmin();
-        return consumerRepository.findAll().stream().map(this::toResponse).toList();
+        return consumerRepository.findAll().stream()
+                .filter(c -> c.getThemeId() != null)
+                .map(this::toResponse)
+                .toList();
     }
 
     public ConsumerResponse get(Long id) {
@@ -42,91 +68,32 @@ public class ConsumerService {
     }
 
     @Transactional
-    public ConsumerCreateResponse create(ConsumerRequest req) {
-        authzService.requireSuperAdmin();
-        if (consumerRepository.existsByName(req.getName().trim())) {
-            throw new BusinessException("调用方名称已存在");
-        }
-        validateApiIds(req.getApiIds());
-        String rawKey = ApiKeySupport.generateRawKey();
-        Consumer consumer = new Consumer();
-        consumer.setName(req.getName().trim());
-        consumer.setDepartment(req.getDepartment());
-        consumer.setStatus(normalizeStatus(req.getStatus()));
-        applyKey(consumer, rawKey);
-        Consumer saved = consumerRepository.save(consumer);
-        saveGrants(saved.getId(), req.getApiIds());
-        auditLogService.log("CREATE", "CONSUMER", String.valueOf(saved.getId()), saved.getName(), toResponse(saved));
-        return ConsumerCreateResponse.builder()
-                .consumer(toResponse(saved))
-                .apiKey(rawKey)
-                .build();
-    }
-
-    @Transactional
-    public ConsumerResponse update(Long id, ConsumerRequest req) {
-        authzService.requireSuperAdmin();
-        Consumer consumer = findConsumer(id);
-        if (!consumer.getName().equals(req.getName().trim()) && consumerRepository.existsByName(req.getName().trim())) {
-            throw new BusinessException("调用方名称已存在");
-        }
-        validateApiIds(req.getApiIds());
-        consumer.setName(req.getName().trim());
-        consumer.setDepartment(req.getDepartment());
-        consumer.setStatus(normalizeStatus(req.getStatus()));
-        Consumer saved = consumerRepository.save(consumer);
-        grantRepository.deleteByConsumerId(saved.getId());
-        saveGrants(saved.getId(), req.getApiIds());
-        ConsumerResponse response = toResponse(saved);
-        auditLogService.log("UPDATE", "CONSUMER", String.valueOf(saved.getId()), saved.getName(), response);
-        return response;
-    }
-
-    @Transactional
-    public ConsumerCreateResponse rotateKey(Long id) {
-        authzService.requireSuperAdmin();
-        Consumer consumer = findConsumer(id);
-        String rawKey = ApiKeySupport.generateRawKey();
-        applyKey(consumer, rawKey);
-        Consumer saved = consumerRepository.save(consumer);
-        auditLogService.log("ROTATE_KEY", "CONSUMER", String.valueOf(saved.getId()), saved.getName(), null);
-        return ConsumerCreateResponse.builder()
-                .consumer(toResponse(saved))
-                .apiKey(rawKey)
-                .build();
-    }
-
-    @Transactional
     public void delete(Long id) {
         authzService.requireSuperAdmin();
         Consumer consumer = findConsumer(id);
+        if (consumer.getThemeId() != null) {
+            throw new BusinessException("主题 API Key 请在主题管理中操作");
+        }
         consumerRepository.delete(consumer);
-        auditLogService.log("DELETE", "CONSUMER", String.valueOf(id), consumer.getName(), null);
     }
 
     public Optional<Consumer> authenticate(String rawKey) {
-        if (rawKey == null || rawKey.isBlank()) {
-            return Optional.empty();
-        }
-        String trimmed = rawKey.trim();
-        Optional<Consumer> found = consumerRepository.findByApiKeyHash(ApiKeySupport.hashKey(trimmed, keyProperties.getKeyPepper()))
-                .filter(c -> "ACTIVE".equals(c.getStatus()));
-        if (found.isPresent()) {
-            return found;
-        }
-        return consumerRepository.findByApiKeyHash(ApiKeySupport.legacyHashKey(trimmed))
-                .filter(c -> "ACTIVE".equals(c.getStatus()));
+        return themeApiKeyService.authenticate(rawKey);
     }
 
     public boolean canAccess(Long consumerId, Long apiId) {
+        if (themeApiKeyService.canAccessThemeKey(consumerId, apiId)) {
+            return true;
+        }
         return grantRepository.existsByConsumerIdAndApiId(consumerId, apiId);
     }
 
+    /** 开发环境 bootstrap：为无主题绑定的 legacy 调用方授权全部 API。 */
     @Transactional
     public void grantAllApis(Long consumerId) {
         grantRepository.deleteByConsumerId(consumerId);
-        for (ApiDefinition def : apiDefinitionRepository.findAll()) {
-            ConsumerApiGrant grant = new ConsumerApiGrant();
+        for (var def : apiDefinitionRepository.findAll()) {
+            var grant = new com.apigateway.entity.ConsumerApiGrant();
             grant.setConsumerId(consumerId);
             grant.setApiId(def.getId());
             grantRepository.save(grant);
@@ -137,43 +104,21 @@ public class ConsumerService {
         return consumerRepository.findById(id).orElseThrow(() -> new BusinessException("调用方不存在"));
     }
 
-    private void validateApiIds(List<Long> apiIds) {
-        if (apiIds == null || apiIds.isEmpty()) {
-            throw new BusinessException("请至少授权一个 API");
-        }
-        for (Long apiId : apiIds) {
-            if (!apiDefinitionRepository.existsById(apiId)) {
-                throw new BusinessException("API 不存在: " + apiId);
-            }
-        }
-    }
-
-    private void saveGrants(Long consumerId, List<Long> apiIds) {
-        for (Long apiId : apiIds) {
-            ConsumerApiGrant grant = new ConsumerApiGrant();
-            grant.setConsumerId(consumerId);
-            grant.setApiId(apiId);
-            grantRepository.save(grant);
-        }
-    }
-
-    private void applyKey(Consumer consumer, String rawKey) {
-        consumer.setApiKeyHash(ApiKeySupport.hashKey(rawKey, keyProperties.getKeyPepper()));
-        consumer.setKeyPrefix(ApiKeySupport.keyPrefix(rawKey));
-    }
-
-    private String normalizeStatus(String status) {
-        return "DISABLED".equals(status) ? "DISABLED" : "ACTIVE";
-    }
-
     private ConsumerResponse toResponse(Consumer consumer) {
+        String themeName = consumer.getThemeId() != null
+                ? themeRepository.findById(consumer.getThemeId()).map(t -> t.getName()).orElse(null)
+                : null;
         return ConsumerResponse.builder()
                 .id(consumer.getId())
                 .name(consumer.getName())
                 .department(consumer.getDepartment())
+                .themeId(consumer.getThemeId())
+                .themeName(themeName)
                 .keyPrefix(consumer.getKeyPrefix())
                 .status(consumer.getStatus())
-                .apiIds(grantRepository.findApiIdsByConsumerId(consumer.getId()))
+                .apiIds(consumer.getThemeId() == null
+                        ? grantRepository.findApiIdsByConsumerId(consumer.getId())
+                        : null)
                 .createdAt(consumer.getCreatedAt())
                 .build();
     }

@@ -1,5 +1,6 @@
 package com.apigateway.controller;
 
+import com.apigateway.dto.ApiResponse;
 import com.apigateway.dto.QueryResult;
 import com.apigateway.service.DynamicApiService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,7 +28,7 @@ public class DynamicApiController {
             description = "SQL 模板参数通过 query 传入。page、pageSize 必填。",
             security = @SecurityRequirement(name = "ApiKeyAuth"))
     @GetMapping("/v{version}/{theme}/{apiCode}")
-    public QueryResult queryGet(
+    public ApiResponse<QueryResult> queryGet(
             @Parameter(description = "版本号") @PathVariable int version,
             @Parameter(description = "主题编码") @PathVariable String theme,
             @Parameter(description = "API 编码") @PathVariable String apiCode,
@@ -38,7 +39,7 @@ public class DynamicApiController {
         Map<String, Object> params = allParams.entrySet().stream()
                 .filter(e -> !Set.of("page", "pageSize").contains(e.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        return dynamicApiService.invoke(theme, apiCode, version, params, page, pageSize, request);
+        return ApiResponse.ok(dynamicApiService.invoke(theme, apiCode, version, params, page, pageSize, request));
     }
 
     @Operation(
@@ -46,7 +47,7 @@ public class DynamicApiController {
             description = "SQL 模板参数通过 JSON body 传入；page、pageSize 为 query 参数。",
             security = @SecurityRequirement(name = "ApiKeyAuth"))
     @PostMapping("/v{version}/{theme}/{apiCode}")
-    public QueryResult queryPost(
+    public ApiResponse<QueryResult> queryPost(
             @PathVariable int version,
             @PathVariable String theme,
             @PathVariable String apiCode,
@@ -54,7 +55,7 @@ public class DynamicApiController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize,
             HttpServletRequest request) {
-        return dynamicApiService.invoke(theme, apiCode, version, body != null ? body : Map.of(),
-                page, pageSize, request);
+        return ApiResponse.ok(dynamicApiService.invoke(theme, apiCode, version, body != null ? body : Map.of(),
+                page, pageSize, request));
     }
 }

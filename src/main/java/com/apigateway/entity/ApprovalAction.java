@@ -6,5 +6,6 @@ public enum ApprovalAction {
     PUBLISH,
     SUSPEND,
     RESUME,
-    DELETE
+    DELETE,
+    ROTATE_KEY
 }

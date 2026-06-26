@@ -47,7 +47,14 @@
         <el-form-item :label="t('col.port')"><el-input-number v-model="form.port" :min="1" /></el-form-item>
         <el-form-item :label="t('col.database')"><el-input v-model="form.databaseName" /></el-form-item>
         <el-form-item :label="t('login.username')"><el-input v-model="form.username" /></el-form-item>
-        <el-form-item :label="t('login.password')"><el-input v-model="form.password" type="password" show-password /></el-form-item>
+        <el-form-item :label="t('login.password')">
+          <el-input
+            v-model="form.password"
+            type="password"
+            show-password
+            :placeholder="form.id && passwordConfigured ? t('datasource.passwordKeep') : ''"
+          />
+        </el-form-item>
         <el-form-item :label="t('col.env')"><el-input v-model="form.env" /></el-form-item>
         <el-form-item :label="t('common.readonly')"><el-switch v-model="form.readonly" /></el-form-item>
 
@@ -119,6 +126,7 @@ interface Datasource {
   databaseName: string
   username?: string
   password?: string
+  passwordConfigured?: boolean
   env?: string
   readonly?: boolean
   status?: string
@@ -141,6 +149,7 @@ interface ParamForm {
 const list = ref<Datasource[]>([])
 const themes = ref<any[]>([])
 const datasourceTypes = ref<{ type: string; displayName: string }[]>([])
+const passwordConfigured = ref(false)
 const visible = ref(false)
 const testing = ref(false)
 const form = reactive<Datasource>({
@@ -216,6 +225,7 @@ async function loadTemplate() {
 }
 
 function openCreate() {
+  passwordConfigured.value = false
   Object.assign(form, {
     id: undefined, name: '', type: 'DORIS', host: '127.0.0.1', port: 9030,
     databaseName: '', username: '', password: '', env: 'dev', readonly: true, description: '',
@@ -226,7 +236,8 @@ function openCreate() {
 }
 
 function openEdit(row: Datasource) {
-  Object.assign(form, row)
+  passwordConfigured.value = !!row.passwordConfigured
+  Object.assign(form, { ...row, password: '' })
   fillParamsFromBackend(row.defaultParams)
   visible.value = true
 }
@@ -286,9 +297,13 @@ async function testFormConn() {
 
 async function remove(row: Datasource) {
   await ElMessageBox.confirm(t('common.confirmDelete'), t('common.tip'))
-  await http.delete(`/admin/datasources/${row.id}`)
-  ElMessage.success(t('common.deleted'))
-  await load()
+  try {
+    const result = await http.delete(`/admin/datasources/${row.id}`)
+    await load()
+    ElMessage.success(isApprovalResult(result) ? result.message : t('common.deleted'))
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 onMounted(load)

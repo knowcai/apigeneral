@@ -3,7 +3,7 @@ package com.apigateway.controller.admin;
 import com.apigateway.datasource.DatasourceDriverRegistry;
 import com.apigateway.dto.ApiResponse;
 import com.apigateway.dto.DatasourceRequest;
-import com.apigateway.entity.Datasource;
+import com.apigateway.dto.DatasourceResponse;
 import com.apigateway.service.DatasourceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,13 +26,13 @@ public class AdminDatasourceController {
     }
 
     @GetMapping
-    public ApiResponse<List<Datasource>> list() {
+    public ApiResponse<List<DatasourceResponse>> list() {
         return ApiResponse.ok(datasourceService.list());
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<Datasource> get(@PathVariable Long id) {
-        return ApiResponse.ok(datasourceService.get(id));
+    public ApiResponse<DatasourceResponse> get(@PathVariable Long id) {
+        return ApiResponse.ok(datasourceService.getResponse(id));
     }
 
     @GetMapping("/param-template/{type}")
@@ -41,12 +41,12 @@ public class AdminDatasourceController {
     }
 
     @PostMapping
-    public ApiResponse<Datasource> create(@Valid @RequestBody DatasourceRequest req) {
+    public ApiResponse<DatasourceResponse> create(@Valid @RequestBody DatasourceRequest req) {
         return ApiResponse.ok(datasourceService.create(req));
     }
 
     @PutMapping("/{id}")
-    public ApiResponse<Datasource> update(@PathVariable Long id, @Valid @RequestBody DatasourceRequest req) {
+    public ApiResponse<DatasourceResponse> update(@PathVariable Long id, @Valid @RequestBody DatasourceRequest req) {
         return ApiResponse.ok(datasourceService.update(id, req));
     }
 

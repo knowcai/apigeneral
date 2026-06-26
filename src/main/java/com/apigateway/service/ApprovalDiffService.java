@@ -1,12 +1,11 @@
 package com.apigateway.service;
 
-import com.apigateway.dto.ApiDefinitionRequest;
-import com.apigateway.dto.ApiVersionRequest;
-import com.apigateway.dto.DatasourceRequest;
+import com.apigateway.dto.*;
 import com.apigateway.entity.*;
 import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.ApiDefinitionRepository;
 import com.apigateway.repository.ApiVersionRepository;
+import com.apigateway.repository.ConsumerRepository;
 import com.apigateway.repository.DatasourceRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,22 +20,28 @@ public class ApprovalDiffService {
     private final ApiDefinitionRepository definitionRepository;
     private final ApiVersionRepository versionRepository;
     private final DatasourceRepository datasourceRepository;
+    private final ConsumerRepository consumerRepository;
     private final ObjectMapper objectMapper;
 
     public List<Map<String, Object>> buildDiff(ApprovalResourceType type, ApprovalAction action,
                                                Long resourceId, String payloadJson) {
+        return buildDiffResult(type, action, resourceId, payloadJson).getDiff();
+    }
+
+    public ApprovalDiffResult buildDiffResult(ApprovalResourceType type, ApprovalAction action,
+                                              Long resourceId, String payloadJson) {
         if (action == ApprovalAction.CREATE || payloadJson == null || payloadJson.isBlank()) {
-            return List.of();
+            return ApprovalDiffResult.empty();
         }
         try {
             Object payload = objectMapper.readValue(payloadJson, Object.class);
             Map<String, Object> before = loadBefore(type, action, resourceId, payload);
             Map<String, Object> after = loadAfter(type, action, payload);
-            return diffMaps(before, after);
+            return ApprovalDiffResult.ok(diffMaps(before, after));
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            return List.of();
+            return ApprovalDiffResult.parseError("无法解析变更对比: " + e.getMessage());
         }
     }
 
@@ -64,6 +69,12 @@ public class ApprovalDiffService {
                         .orElseThrow(() -> new BusinessException("数据源不存在"));
                 yield datasourceFields(ds);
             }
+            case THEME_API_KEY -> {
+                if (resourceId == null) yield Map.of();
+                Consumer consumer = consumerRepository.findById(resourceId)
+                        .orElseThrow(() -> new BusinessException("API Key 不存在"));
+                yield themeApiKeyFields(consumer);
+            }
         };
     }
 
@@ -88,6 +99,13 @@ public class ApprovalDiffService {
             case DATASOURCE -> {
                 DatasourceRequest req = objectMapper.convertValue(payload, DatasourceRequest.class);
                 yield datasourceRequestFields(req);
+            }
+            case THEME_API_KEY -> {
+                if (action == ApprovalAction.ROTATE_KEY) {
+                    yield Map.of("keyPrefix", "(轮换后将生成新 Key)");
+                }
+                ThemeApiKeyRequest req = objectMapper.convertValue(payload, ThemeApiKeyRequest.class);
+                yield themeApiKeyRequestFields(req);
             }
         };
     }
@@ -127,6 +145,23 @@ public class ApprovalDiffService {
         m.put("port", req.getPort());
         m.put("database", req.getDatabaseName());
         m.put("readonly", req.getReadonly());
+        return m;
+    }
+
+    private Map<String, Object> themeApiKeyFields(Consumer consumer) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", consumer.getName());
+        m.put("department", nullToEmpty(consumer.getDepartment()));
+        m.put("status", consumer.getStatus());
+        m.put("keyPrefix", nullToEmpty(consumer.getKeyPrefix()));
+        return m;
+    }
+
+    private Map<String, Object> themeApiKeyRequestFields(ThemeApiKeyRequest req) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", req.getName());
+        m.put("department", nullToEmpty(req.getDepartment()));
+        m.put("status", req.getStatus());
         return m;
     }
 

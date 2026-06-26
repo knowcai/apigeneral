@@ -5,3 +5,16 @@ spring:
     username: ${GATEWAY_DB_USER:root}
     password: ${GATEWAY_DB_PASSWORD:root}
     driver-class-name: org.postgresql.Driver
+
+gateway:
+  auth:
+    jwt-secret: ${GATEWAY_JWT_SECRET}
+    default-admin-password: ${GATEWAY_ADMIN_PASSWORD}
+  consumer:
+  # 生产禁用 Legacy Consumer 自动创建与全量授权；请使用主题 API Key
+    bootstrap-key: ""
+    key-pepper: ${GATEWAY_KEY_PEPPER}
+    legacy-enabled: false
+    legacy-sunset-date: "2026-12-31"
+  secrets:
+    encryption-key: ${GATEWAY_SECRET_ENCRYPTION_KEY}

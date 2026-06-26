@@ -19,7 +19,7 @@ public class SqlExecutionService {
 
     public QueryResult execute(Datasource datasource, String sqlTemplate, Map<String, Object> params,
                                Map<String, Object> responseConfig, int page, int pageSize) {
-        JdbcUrlBuilder.assertReadOnly(sqlTemplate);
+        SqlSecurityValidator.validateReadOnlySql(sqlTemplate);
         SqlTemplateEngine.ParsedSql parsed = SqlTemplateEngine.parse(sqlTemplate, params);
         List<Object> values = SqlTemplateEngine.bindValues(parsed, params);
 
@@ -57,11 +57,12 @@ public class SqlExecutionService {
         }
     }
 
-    /** 管理台试跑：强制 LIMIT 1，不对外暴露。 */
+    /** 管理台试跑：强制 LIMIT 1，不对外暴露。只读数据源仍强制 SELECT 类语句。 */
     public QueryResult executeTest(Datasource datasource, String sqlTemplate, Map<String, Object> params,
                                    int timeoutSec) {
-        JdbcUrlBuilder.assertReadOnly(sqlTemplate);
-        SqlSecurityValidator.validateReadOnlySql(sqlTemplate);
+        if (!Boolean.FALSE.equals(datasource.getReadonly())) {
+            SqlSecurityValidator.validateReadOnlySql(sqlTemplate);
+        }
         SqlTemplateEngine.ParsedSql parsed = SqlTemplateEngine.parse(sqlTemplate, params);
         List<Object> values = SqlTemplateEngine.bindValues(parsed, params);
         String testSql = driverRegistry.require(datasource.getType())

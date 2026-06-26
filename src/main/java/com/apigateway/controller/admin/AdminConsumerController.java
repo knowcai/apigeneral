@@ -1,15 +1,13 @@
 package com.apigateway.controller.admin;
 
 import com.apigateway.dto.ApiResponse;
-import com.apigateway.dto.ConsumerCreateResponse;
-import com.apigateway.dto.ConsumerRequest;
 import com.apigateway.dto.ConsumerResponse;
 import com.apigateway.service.ConsumerService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/admin/consumers")
@@ -18,6 +16,7 @@ public class AdminConsumerController {
 
     private final ConsumerService consumerService;
 
+    /** 只读：查看全部 Key。创建/编辑/轮换请至「主题管理」。 */
     @GetMapping
     public ApiResponse<List<ConsumerResponse>> list() {
         return ApiResponse.ok(consumerService.list());
@@ -28,24 +27,8 @@ public class AdminConsumerController {
         return ApiResponse.ok(consumerService.get(id));
     }
 
-    @PostMapping
-    public ApiResponse<ConsumerCreateResponse> create(@Valid @RequestBody ConsumerRequest req) {
-        return ApiResponse.ok(consumerService.create(req));
-    }
-
-    @PutMapping("/{id}")
-    public ApiResponse<ConsumerResponse> update(@PathVariable Long id, @Valid @RequestBody ConsumerRequest req) {
-        return ApiResponse.ok(consumerService.update(id, req));
-    }
-
-    @PostMapping("/{id}/rotate-key")
-    public ApiResponse<ConsumerCreateResponse> rotateKey(@PathVariable Long id) {
-        return ApiResponse.ok(consumerService.rotateKey(id));
-    }
-
-    @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
-        consumerService.delete(id);
-        return ApiResponse.ok(null);
+    @GetMapping("/legacy-migration")
+    public ApiResponse<Map<String, Object>> legacyMigration(@RequestParam(defaultValue = "168") int hours) {
+        return ApiResponse.ok(consumerService.legacyMigrationStats(hours));
     }
 }

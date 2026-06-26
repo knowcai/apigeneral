@@ -26,6 +26,7 @@ public class DynamicApiService {
     private final InFlightRequestTracker inFlightRequestTracker;
     private final ConsumerService consumerService;
     private final GatewayMetrics gatewayMetrics;
+    private final ThemeService themeService;
 
     public QueryResult invoke(String theme, String apiCode, Integer versionNo, Map<String, Object> params,
                               Integer page, Integer pageSize, HttpServletRequest request) {
@@ -44,6 +45,7 @@ public class DynamicApiService {
         ApiConsumerContext apiConsumer = (ApiConsumerContext) request.getAttribute(ApiConsumerContext.REQUEST_ATTR);
         String consumerName = apiConsumer != null ? apiConsumer.getName() : "unknown";
         Long consumerId = apiConsumer != null ? apiConsumer.getId() : null;
+        String authMode = apiConsumer != null ? apiConsumer.getAuthMode() : null;
         Map<String, Object> mergedParams = mergeParams(params);
         Integer logVersion = versionNo;
         boolean sqlAttempted = false;
@@ -53,6 +55,7 @@ public class DynamicApiService {
             if (theme != null && def.getTheme() != null && !theme.equals(def.getTheme())) {
                 throw new BusinessException("主题路径不匹配");
             }
+            themeService.requireEnabledForDataAccess(def.getThemeId(), def.getTheme() != null ? def.getTheme() : theme);
             ApiVersion version = apiManagementService.resolvePublishedVersion(def, versionNo);
             logVersion = version.getVersionNo();
             if (consumerId == null || !consumerService.canAccess(consumerId, def.getId())) {
@@ -66,9 +69,6 @@ public class DynamicApiService {
 
             Datasource ds = datasourceRepository.findById(version.getDatasourceId())
                     .orElseThrow(() -> new BusinessException("数据源不存在"));
-            if (Boolean.TRUE.equals(ds.getReadonly())) {
-                JdbcUrlBuilder.assertReadOnly(version.getSqlTemplate());
-            }
 
             PaginationParams pagination = resolvePaginationParams(config, page, pageSize);
             ParamSchemaValidator.validate(version.getSqlTemplate(), version.getParamSchema(), mergedParams);
@@ -80,7 +80,7 @@ public class DynamicApiService {
 
             protectionService.onSuccess(apiCode);
             long bytes = accessLogService.estimateBytes(result);
-            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
+            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, authMode, mergedParams, start,
                     result.getRows().size(), bytes, "SUCCESS", null);
             gatewayMetrics.recordApiRequest(apiCode, "SUCCESS", System.currentTimeMillis() - start);
             return result;
@@ -89,7 +89,7 @@ public class DynamicApiService {
                 protectionService.onFailure(apiCode);
             }
             String status = statusLabel(e);
-            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
+            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, authMode, mergedParams, start,
                     0, 0, status, e.getMessage());
             gatewayMetrics.recordApiRequest(apiCode, status, System.currentTimeMillis() - start);
             throw e;
@@ -97,7 +97,7 @@ public class DynamicApiService {
             if (sqlAttempted) {
                 protectionService.onFailure(apiCode);
             }
-            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, mergedParams, start,
+            logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, authMode, mergedParams, start,
                     0, 0, "ERROR", e.getMessage());
             gatewayMetrics.recordApiRequest(apiCode, "ERROR", System.currentTimeMillis() - start);
             throw e;
@@ -105,9 +105,9 @@ public class DynamicApiService {
     }
 
     private void logAccess(String apiCode, Integer version, String clientIp, Long consumerId, String consumerName,
-                           Map<String, Object> params, long start,
+                           String authMode, Map<String, Object> params, long start,
                            long rows, long bytes, String status, String error) {
-        accessLogService.logAsync(apiCode, version, clientIp, consumerId, consumerName, params,
+        accessLogService.logAsync(apiCode, version, clientIp, consumerId, consumerName, authMode, params,
                 "PAGE", rows, bytes, System.currentTimeMillis() - start, status, error);
     }
 

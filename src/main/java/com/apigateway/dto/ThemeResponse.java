@@ -22,6 +22,17 @@ public class ThemeResponse {
     /** 当前登录用户在该主题下的角色，超级管理员为 null */
     private ThemeMembershipRole myRole;
 
+    /** 主题 API Key 摘要（仅列表/详情展示） */
+    private String apiKeyPrefix;
+    private String apiKeyStatus;
+    /** NONE | PENDING | ACTIVE | DISABLED */
+    private String apiKeyPhase;
+    private Long apiKeyPendingRequestId;
+    /** CREATE | ROTATE_KEY | DELETE */
+    private String apiKeyPendingAction;
+    /** 审批通过后完整 Key 待主题管理员领取（先到先得，领取后全员不可再领） */
+    private Boolean apiKeyPickupPending;
+
     @Data
     @Builder
     public static class Member {

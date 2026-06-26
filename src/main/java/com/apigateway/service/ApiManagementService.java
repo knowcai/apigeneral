@@ -148,7 +148,20 @@ public class ApiManagementService {
     @Transactional
     public void deleteDefinition(Long id) {
         ApiDefinition def = getDefinition(id);
+        authzService.requireApiWrite(def);
         themeService.requireThemeAdmin(def.getThemeId());
+        if (!authzService.isSuperAdmin()) {
+            approvalService.submit(ApprovalResourceType.API_DEFINITION, id, ApprovalAction.DELETE,
+                    def.getThemeId(), "删除 API: " + def.getApiCode(), Map.of("apiCode", def.getApiCode()));
+            throw new BusinessException(202, "已提交审批，请在「待我审批」或「审批中心」查看进度");
+        }
+        deleteDefinitionDirect(id);
+    }
+
+    @Transactional
+    public void deleteDefinitionDirect(Long id) {
+        ApiDefinition def = definitionRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("API 不存在"));
         definitionRepository.deleteById(id);
         auditLogService.log("DELETE", "API_DEFINITION", String.valueOf(id), def.getApiCode(), null);
     }
@@ -390,7 +403,6 @@ public class ApiManagementService {
     @Transactional
     public ApiVersion createVersionDirect(Long apiId, ApiVersionRequest req) {
         ApiDefinition def = getDefinition(apiId);
-        SqlSecurityValidator.validateReadOnlySql(req.getSqlTemplate());
         int nextVersion = versionRepository.findByApiIdOrderByVersionNoDesc(apiId).stream()
                 .mapToInt(ApiVersion::getVersionNo).max().orElse(0) + 1;
         ApiVersion version = new ApiVersion();
@@ -411,7 +423,6 @@ public class ApiManagementService {
         if (version.getStatus() == PublishStatus.PUBLISHED || version.getStatus() == PublishStatus.SUSPENDED) {
             throw new BusinessException("已发布或已暂停版本请新建版本号修改，勿直接编辑");
         }
-        SqlSecurityValidator.validateReadOnlySql(req.getSqlTemplate());
         applyVersion(version, req);
         ApiVersion saved = versionRepository.save(version);
         auditLogService.log("UPDATE", "API_VERSION", String.valueOf(saved.getId()),

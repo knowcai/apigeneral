@@ -1,0 +1,3 @@
+ALTER TABLE consumer ADD COLUMN IF NOT EXISTS theme_id BIGINT REFERENCES theme(id) ON DELETE CASCADE;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_consumer_theme_id ON consumer(theme_id) WHERE theme_id IS NOT NULL;

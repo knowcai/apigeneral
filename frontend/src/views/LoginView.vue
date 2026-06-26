@@ -2,7 +2,7 @@
   <div class="login-page">
     <aside class="login-brand">
       <div class="brand-inner">
-        <div class="brand-logo">SQL API Gateway</div>
+        <div class="brand-logo">{{ t('common.brandName') }}</div>
         <p class="brand-tagline">{{ t('login.tagline') }}</p>
         <ul class="brand-features">
           <li><el-icon><Connection /></el-icon><span>{{ t('login.feature1') }}</span></li>
@@ -10,7 +10,7 @@
           <li><el-icon><Setting /></el-icon><span>{{ t('login.feature3') }}</span></li>
         </ul>
       </div>
-      <div class="brand-footer">Management Console</div>
+      <div class="brand-footer">{{ t('login.console') }}</div>
     </aside>
 
     <main class="login-main">
@@ -21,14 +21,13 @@
         </header>
 
         <el-form class="login-form" :model="form" size="large" @submit.prevent="submit">
-          <el-form-item>
-            <el-input v-model="form.username" :placeholder="t('login.username')" autocomplete="username" :prefix-icon="User" />
+          <el-form-item :label="t('login.username')">
+            <el-input v-model="form.username" autocomplete="username" :prefix-icon="User" />
           </el-form-item>
-          <el-form-item>
+          <el-form-item :label="t('login.password')">
             <el-input
               v-model="form.password"
               type="password"
-              :placeholder="t('login.password')"
               show-password
               autocomplete="current-password"
               :prefix-icon="Lock"
@@ -73,7 +72,7 @@ async function submit() {
     const data = await http.post<{ token: string; user: UserInfo }>('/admin/auth/login', form)
     auth.setSession(data.token, data.user)
     ElMessage.success(t('login.success'))
-    router.replace('/datasources')
+    router.replace('/themes')
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {

@@ -42,6 +42,8 @@ public class ConsumerBootstrapInitializer implements ApplicationRunner {
             existing = consumerRepository.findByApiKeyHash(ApiKeySupport.legacyHashKey(trimmed));
         }
         if (existing.isPresent()) {
+            log.warn("Legacy Consumer bootstrap 已匹配既有调用方 id={}，仍将全量授权 API（生产环境请清空 gateway.consumer.bootstrap-key）",
+                    existing.get().getId());
             consumerService.grantAllApis(existing.get().getId());
             return;
         }

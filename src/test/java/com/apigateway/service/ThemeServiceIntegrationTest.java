@@ -1,5 +1,6 @@
 package com.apigateway.service;
 
+import com.apigateway.dto.ThemeMemberRequest;
 import com.apigateway.dto.ThemeMembersUpdateRequest;
 import com.apigateway.dto.ThemeRequest;
 import com.apigateway.dto.ThemeResponse;
@@ -89,5 +90,25 @@ class ThemeServiceIntegrationTest {
         themeService.updateThemeMembers(theme.getId(), req);
 
         assertTrue(membershipRepository.findByThemeIdAndUserId(theme.getId(), member1.getId()).isPresent());
+    }
+
+    @Test
+    void disabledThemeBlocksDataApiAccess() {
+        ThemeResponse theme = fixtures.createThemeWithAdmins("禁用校验主题", List.of(admin1.getId()));
+
+        TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
+        ThemeRequest disable = new ThemeRequest();
+        disable.setName(theme.getName());
+        disable.setEnabled(false);
+        ThemeMemberRequest admin = new ThemeMemberRequest();
+        admin.setUserId(admin1.getId());
+        admin.setRole(ThemeMembershipRole.THEME_ADMIN);
+        disable.setMembers(List.of(admin));
+        themeService.update(theme.getId(), disable);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> themeService.requireEnabledForDataAccess(theme.getId(), theme.getCode()));
+        assertEquals(403, ex.getCode());
+        assertTrue(ex.getMessage().contains("禁用"));
     }
 }

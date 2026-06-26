@@ -1,8 +1,10 @@
 <template>
-  <div class="api-page">
-    <div class="page-header">
+  <div class="api-page" v-loading="pageLoading">
+    <div class="toolbar">
       <h2>{{ t('api.title') }}</h2>
       <el-button v-if="auth.canCreateApi.value" type="primary" @click="openDef">{{ t('api.create') }}</el-button>
+      <el-tag v-if="auth.canCreateApi.value && !auth.isSuperAdmin.value" type="info">{{ t('api.needApproval') }}</el-tag>
+      <el-tag v-else-if="!auth.canCreateApi.value" type="info">{{ t('common.readonly') }}</el-tag>
     </div>
 
     <div class="split-layout">
@@ -13,6 +15,7 @@
         </div>
         <div class="panel-body">
           <el-table ref="apiTableRef" :data="apis" stripe highlight-current-row :height="apiTableHeight" @row-click="selectApi">
+            <template #empty><el-empty :description="t('api.emptyApiList')" /></template>
             <el-table-column prop="apiCode" :label="t('col.code')" min-width="140" show-overflow-tooltip />
             <el-table-column prop="name" :label="t('col.name')" min-width="120" show-overflow-tooltip />
             <el-table-column :label="t('col.theme')" width="120">
@@ -20,9 +23,10 @@
             </el-table-column>
             <el-table-column prop="createdBy" :label="t('api.creator')" width="100" />
             <el-table-column prop="updatedBy" :label="t('api.modifier')" width="100" />
-            <el-table-column :label="t('col.actions')" width="100" fixed="right">
+            <el-table-column :label="t('col.actions')" width="160" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="canEditApi(row)" link @click.stop="editDef(row)">{{ t('common.edit') }}</el-button>
+                <el-button v-if="canEditApi(row)" link type="danger" @click.stop="deleteDef(row)">{{ t('common.delete') }}</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -48,7 +52,7 @@
             <el-table-column label="SQL" min-width="200">
               <template #default="{ row }"><span class="sql-preview">{{ row.sqlTemplate }}</span></template>
             </el-table-column>
-            <el-table-column :label="t('col.actions')" width="340" fixed="right">
+            <el-table-column :label="t('col.actions')" width="200" fixed="right">
               <template #default="{ row }">
                 <template v-if="canEditCurrent">
                   <el-tooltip :content="editDisabledReason(row)" :disabled="!editDisabledReason(row)" placement="top">
@@ -64,13 +68,17 @@
                   <el-button v-if="row.status === 'PUBLISHED'" link type="warning" @click.stop="suspendVersion(row)">{{ t('api.suspend') }}</el-button>
                   <el-button v-if="row.status === 'SUSPENDED'" link type="primary" @click.stop="resumeVersion(row)">{{ t('api.resume') }}</el-button>
                 </template>
-                <el-tooltip :content="t('api.draftNoPath')" :disabled="row.status !== 'DRAFT'" placement="top">
-                  <span class="action-btn-wrap">
-                    <el-button link @click.stop="showEndpoint(row)" :disabled="row.status === 'DRAFT'">{{ t('api.endpoint') }}</el-button>
-                  </span>
-                </el-tooltip>
-                <el-button link @click.stop="showDoc(row)">{{ t('api.doc') }}</el-button>
-                <el-button v-if="canEditCurrent" link type="primary" @click.stop="openTest(row)">{{ t('api.testRunBtn') }}</el-button>
+                <el-dropdown trigger="click" @command="(cmd: string) => versionMore(cmd, row)">
+                  <el-button link @click.stop>{{ t('common.more') }}</el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="endpoint" :disabled="row.status === 'DRAFT'">{{ t('api.endpoint') }}</el-dropdown-item>
+                      <el-dropdown-item command="doc">{{ t('api.doc') }}</el-dropdown-item>
+                      <el-dropdown-item command="openapi">{{ t('api.exportOpenApi') }}</el-dropdown-item>
+                      <el-dropdown-item v-if="canEditCurrent" command="test">{{ t('api.testRunBtn') }}</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </template>
             </el-table-column>
           </el-table>
@@ -118,6 +126,11 @@
           <div class="hint">{{ t('api.sqlHint') }}</div>
         </el-form-item>
 
+        <el-form-item :label="t('api.paramSchema')">
+          <el-input v-model="paramSchemaJson" type="textarea" :rows="6" :placeholder="t('api.paramSchemaPlaceholder')" />
+          <div class="hint">{{ t('api.paramSchemaHint') }}</div>
+        </el-form-item>
+
         <el-divider content-position="left">{{ t('api.respSection') }}</el-divider>
 
         <el-form-item :label="t('api.timeoutSec')">
@@ -162,6 +175,14 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="endpointVisible" :title="t('api.endpointTitle')" width="560px">
+      <p class="endpoint-path"><code>{{ endpointPath }}</code></p>
+      <template #footer>
+        <el-button @click="endpointVisible = false">{{ t('common.close') }}</el-button>
+        <el-button type="primary" @click="copyEndpoint">{{ t('common.copy') }}</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="testVisible" :title="t('api.testTitle')" width="720px">
       <div class="hint block-hint">{{ t('api.testHint') }}</div>
       <el-form label-width="100px">
@@ -180,13 +201,16 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TableInstance } from 'element-plus'
 import http, { isApprovalResult } from '../api/http'
 import { auth } from '../stores/auth'
+import { notifyApprovalResult } from '../utils/approval'
 
 const { t } = useI18n()
+const router = useRouter()
 
 interface RespConfigForm {
   timeoutSec: number
@@ -213,8 +237,12 @@ const testParamsJson = ref('{}')
 const testResult = ref('')
 const testVersionId = ref<number | null>(null)
 const apiDoc = ref<any>(null)
+const pageLoading = ref(false)
+const endpointVisible = ref(false)
+const endpointPath = ref('')
 const defForm = reactive<any>({ apiCode: '', name: '', themeId: null, description: '' })
 const verForm = reactive<any>({ datasourceId: null, sqlTemplate: '', responseMode: 'PAGE', updatedBy: 'admin' })
+const paramSchemaJson = ref('{}')
 const respConfig = reactive<RespConfigForm>({ ...PAGE_DEFAULTS })
 
 const apiPanelRef = ref<HTMLElement>()
@@ -258,14 +286,19 @@ function themeName(themeId?: number) {
 }
 
 async function loadApis() {
-  themes.value = await http.get('/admin/themes')
-  apis.value = await http.get('/admin/apis')
-  datasources.value = await http.get('/admin/datasources')
-  await nextTick()
-  if (apis.value.length === 0) { currentApi.value = null; versions.value = []; return }
-  const prevId = currentApi.value?.id
-  const target = prevId ? apis.value.find(a => a.id === prevId) : apis.value[0]
-  if (target) { await selectApi(target, false); apiTableRef.value?.setCurrentRow(target) }
+  pageLoading.value = true
+  try {
+    themes.value = await http.get('/admin/themes')
+    apis.value = await http.get('/admin/apis')
+    datasources.value = await http.get('/admin/datasources')
+    await nextTick()
+    if (apis.value.length === 0) { currentApi.value = null; versions.value = []; return }
+    const prevId = currentApi.value?.id
+    const target = prevId ? apis.value.find(a => a.id === prevId) : apis.value[0]
+    if (target) { await selectApi(target, false); apiTableRef.value?.setCurrentRow(target) }
+  } finally {
+    pageLoading.value = false
+  }
 }
 
 async function selectApi(row: any, updateHighlight = true) {
@@ -295,8 +328,34 @@ async function saveDef() {
     }
     defVisible.value = false
     await loadApis()
-    ElMessage.success(isApprovalResult(result) ? result.message : t('common.saved'))
+    notifyApprovalResult(result, t('common.saved'), t, router)
   } catch (e: any) { ElMessage.error(e.message) }
+}
+
+async function deleteDef(row: any) {
+  try {
+    await ElMessageBox.confirm(t('api.deleteConfirm', { code: row.apiCode }), t('common.tip'), { type: 'warning' })
+    const result = await http.delete(`/admin/apis/${row.id}`)
+    await loadApis()
+    notifyApprovalResult(result, t('common.deleted'), t, router)
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e.message || t('common.operationFailed'))
+  }
+}
+
+async function downloadOpenApi(row: any) {
+  try {
+    const spec = await http.get(`/admin/apis/versions/${row.id}/openapi`)
+    const blob = new Blob([JSON.stringify(spec, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${currentApi.value?.apiCode || 'api'}-v${row.versionNo}-openapi.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 function currentOperator() { return auth.state.user?.username || 'admin' }
@@ -304,6 +363,7 @@ function currentOperator() { return auth.state.user?.username || 'admin' }
 function openVersion() {
   if (!currentApi.value) return ElMessage.warning(t('api.needSelectApi'))
   Object.assign(verForm, { id: undefined, datasourceId: datasources.value[0]?.id, sqlTemplate: '', responseMode: 'PAGE', updatedBy: currentOperator() })
+  paramSchemaJson.value = '{}'
   resetRespConfig()
   verVisible.value = true
 }
@@ -311,6 +371,7 @@ function openVersion() {
 function editVersion(row: any) {
   Object.assign(verForm, row)
   verForm.responseMode = 'PAGE'
+  paramSchemaJson.value = JSON.stringify(row.paramSchema || {}, null, 2)
   fillRespConfig(row.responseConfig)
   verVisible.value = true
 }
@@ -319,13 +380,22 @@ async function saveVersion() {
   const sql = verForm.sqlTemplate?.trim()
   if (!sql) return ElMessage.warning(t('api.needSql'))
   if (!/^(SELECT|WITH|SHOW|DESC|EXPLAIN)\b/i.test(sql)) return ElMessage.warning(t('api.sqlPrefix'))
-  const payload = { ...verForm, sqlTemplate: sql, responseMode: 'PAGE', responseConfig: buildRespConfig() }
+  let paramSchema: Record<string, unknown> = {}
+  try {
+    paramSchema = JSON.parse(paramSchemaJson.value || '{}')
+    if (paramSchema === null || Array.isArray(paramSchema) || typeof paramSchema !== 'object') {
+      return ElMessage.warning(t('api.paramSchemaInvalid'))
+    }
+  } catch {
+    return ElMessage.warning(t('api.paramSchemaInvalid'))
+  }
+  const payload = { ...verForm, sqlTemplate: sql, responseMode: 'PAGE', responseConfig: buildRespConfig(), paramSchema }
   try {
     let result: unknown
     if (verForm.id) result = await http.put(`/admin/apis/versions/${verForm.id}`, payload)
     else result = await http.post(`/admin/apis/${currentApi.value.id}/versions`, payload)
     verVisible.value = false
-    if (isApprovalResult(result)) ElMessage.success(result.message)
+    if (isApprovalResult(result)) notifyApprovalResult(result, '', t, router)
     else { versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`); ElMessage.success(t('common.saved')) }
   } catch (e: any) { ElMessage.error(e.message) }
 }
@@ -334,7 +404,8 @@ async function publish(row: any) {
   try {
     const result = await http.post(`/admin/apis/versions/${row.id}/publish`)
     versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
-    ElMessage.success(isApprovalResult(result) ? result.message : t('api.publishedOk', { ver: row.versionNo }))
+    if (isApprovalResult(result)) notifyApprovalResult(result, t('api.publishedOk', { ver: row.versionNo }), t, router)
+    else ElMessage.success(t('api.publishedOk', { ver: row.versionNo }))
   } catch (e: any) { ElMessage.error(e.message) }
 }
 
@@ -414,7 +485,20 @@ async function runTest() {
 
 async function showEndpoint(row: any) {
   const info = await http.get<{ path: string }>(`/admin/apis/versions/${row.id}/endpoint`)
-  ElMessage.info(`${t('api.path')}: ${info.path}`)
+  endpointPath.value = info.path
+  endpointVisible.value = true
+}
+
+function copyEndpoint() {
+  navigator.clipboard.writeText(endpointPath.value)
+  ElMessage.success(t('common.copied'))
+}
+
+function versionMore(cmd: string, row: any) {
+  if (cmd === 'endpoint') showEndpoint(row)
+  else if (cmd === 'doc') showDoc(row)
+  else if (cmd === 'openapi') downloadOpenApi(row)
+  else if (cmd === 'test') openTest(row)
 }
 
 onMounted(async () => {
@@ -431,8 +515,9 @@ onUnmounted(() => { resizeObserver?.disconnect() })
 
 <style scoped>
 .api-page { height: calc(100vh - 64px); display: flex; flex-direction: column; min-height: 0; }
-.page-header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; }
+.toolbar { flex-shrink: 0; display: flex; justify-content: flex-start; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.toolbar h2 { margin: 0; margin-right: auto; }
+.endpoint-path code { display: block; padding: 12px; background: var(--bw-gray-100); word-break: break-all; }
 .split-layout { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 .panel { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--bw-gray-200); background: var(--bw-white); }
 .api-panel { flex: 6; }

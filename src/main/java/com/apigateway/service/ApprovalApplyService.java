@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class ApprovalApplyService {
@@ -26,6 +27,7 @@ public class ApprovalApplyService {
     private final CurrentUser currentUser;
     private final ObjectMapper objectMapper;
     private final AuditLogService auditLogService;
+    private final ThemeApiKeyService themeApiKeyService;
 
     public ApprovalApplyService(
             ApiDefinitionRepository definitionRepository,
@@ -36,7 +38,8 @@ public class ApprovalApplyService {
             @Lazy DatasourceService datasourceService,
             CurrentUser currentUser,
             ObjectMapper objectMapper,
-            AuditLogService auditLogService) {
+            AuditLogService auditLogService,
+            @Lazy ThemeApiKeyService themeApiKeyService) {
         this.definitionRepository = definitionRepository;
         this.versionRepository = versionRepository;
         this.datasourceRepository = datasourceRepository;
@@ -46,16 +49,27 @@ public class ApprovalApplyService {
         this.currentUser = currentUser;
         this.objectMapper = objectMapper;
         this.auditLogService = auditLogService;
+        this.themeApiKeyService = themeApiKeyService;
     }
 
     @Transactional
-    public void apply(ApprovalResourceType type, Long resourceId, ApprovalAction action, Long themeId, Object payload) {
-        switch (type) {
-            case API_DEFINITION -> applyApiDefinition(action, themeId, payload, resourceId);
-            case API_VERSION -> applyApiVersion(action, payload, resourceId);
-            case DATASOURCE -> applyDatasource(action, themeId, payload, resourceId);
+    public Optional<String> apply(ApprovalResourceType type, Long resourceId, ApprovalAction action, Long themeId, Object payload) {
+        return switch (type) {
+            case API_DEFINITION -> {
+                applyApiDefinition(action, themeId, payload, resourceId);
+                yield Optional.empty();
+            }
+            case API_VERSION -> {
+                applyApiVersion(action, payload, resourceId);
+                yield Optional.empty();
+            }
+            case DATASOURCE -> {
+                applyDatasource(action, themeId, payload, resourceId);
+                yield Optional.empty();
+            }
+            case THEME_API_KEY -> themeApiKeyService.apply(action, themeId, resourceId, payload);
             default -> throw new BusinessException("不支持的审批资源: " + type);
-        }
+        };
     }
 
     private void applyApiDefinition(ApprovalAction action, Long themeId, Object payload, Long resourceId) {
@@ -71,6 +85,8 @@ public class ApprovalApplyService {
             def.setUpdatedBy(currentUser.username());
             definitionRepository.save(def);
             auditLogService.log("UPDATE", "API_DEFINITION", String.valueOf(def.getId()), def.getApiCode(), def);
+        } else if (action == ApprovalAction.DELETE) {
+            apiManagementService.deleteDefinitionDirect(resourceId);
         } else {
             throw new BusinessException("不支持的 API 定义操作: " + action);
         }
@@ -97,6 +113,10 @@ public class ApprovalApplyService {
     }
 
     private void applyDatasource(ApprovalAction action, Long themeId, Object payload, Long resourceId) {
+        if (action == ApprovalAction.DELETE) {
+            datasourceService.deleteDirect(resourceId);
+            return;
+        }
         DatasourceRequest req = convert(payload, DatasourceRequest.class);
         req.setThemeId(themeId);
         if (action == ApprovalAction.CREATE) {

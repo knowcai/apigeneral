@@ -9,5 +9,9 @@ public interface ConsumerRepository extends JpaRepository<Consumer, Long> {
 
     Optional<Consumer> findByApiKeyHash(String apiKeyHash);
 
+    Optional<Consumer> findByThemeId(Long themeId);
+
+    boolean existsByThemeId(Long themeId);
+
     boolean existsByName(String name);
 }

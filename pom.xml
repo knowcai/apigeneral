@@ -13,7 +13,7 @@
 
     <groupId>com.apigateway</groupId>
     <artifactId>sql-api-gateway</artifactId>
-    <version>1.0.3</version>
+    <version>1.0.4</version>
     <name>sql-api-gateway</name>
     <description>Doris / ClickHouse SQL API Gateway</description>
 

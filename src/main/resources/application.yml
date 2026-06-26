@@ -33,9 +33,11 @@ gateway:
     default-admin-username: admin
     default-admin-password: admin123
   consumer:
-    bootstrap-name: 开发默认调用方
-    bootstrap-key: gw_dev_change_me_in_production
+    bootstrap-key: ""
     key-pepper: dev-pepper-change-in-production
+    legacy-enabled: false
+  secrets:
+    encryption-key: ${GATEWAY_SECRET_ENCRYPTION_KEY:dev-secret-key-change-in-production!!}
   health:
     check-downstream-datasources: true
     datasource-check-timeout-ms: 3000

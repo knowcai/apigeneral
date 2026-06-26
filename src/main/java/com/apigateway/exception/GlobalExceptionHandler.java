@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -66,12 +67,18 @@ public class GlobalExceptionHandler {
         return ApiResponse.fail("操作失败，请重试");
     }
 
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    public ApiResponse<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        String message = "不支持的 HTTP 方法: " + ex.getMethod();
+        ApiResponse<Void> body = ApiResponse.fail(405, message);
+        body.setRequestId(currentRequestId());
+        return body;
+    }
+
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<?> handleBusiness(BusinessException ex) {
+    public ResponseEntity<ApiResponse<Object>> handleBusiness(BusinessException ex) {
         HttpStatus status = mapStatus(ex.getCode());
-        if (ex.getData() instanceof java.util.Map<?, ?> map && map.containsKey("code")) {
-            return ResponseEntity.status(status).body(map);
-        }
         ApiResponse<Object> body = new ApiResponse<>(ex.getCode(), ex.getMessage(), ex.getData(), currentRequestId());
         body.setRequestId(currentRequestId());
         return ResponseEntity.status(status).body(body);

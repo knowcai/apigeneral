@@ -7,6 +7,7 @@ import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.ApiDefinitionRepository;
 import com.apigateway.repository.ApprovalRequestRepository;
 import com.apigateway.repository.ApprovalTaskRepository;
+import com.apigateway.support.GatewayTestFixtures;
 import com.apigateway.support.TestAuth;
 import com.apigateway.support.TestFixtures;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +38,10 @@ class ApprovalFlowIntegrationTest {
     private ApprovalRequestRepository approvalRequestRepository;
     @Autowired
     private ApprovalTaskRepository approvalTaskRepository;
+    @Autowired
+    private ApiManagementService apiManagementService;
+    @Autowired
+    private GatewayTestFixtures gatewayFixtures;
 
     private SysUser admin1;
     private SysUser admin2;
@@ -122,15 +127,39 @@ class ApprovalFlowIntegrationTest {
     }
 
     @Test
-    void submitFailsWhenNoOtherThemeAdmin() {
+    void multipleThemeAdminsAlsoAssignTasksToSuperAdmin() {
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "超管也可审", apiPayload("super-can-approve-api", theme.getId()));
+
+        SysUser superAdmin = fixtures.requireSuperAdmin();
+        TestAuth.login(superAdmin.getId(), superAdmin.getUsername(), UserRole.SUPER_ADMIN);
+        List<Map<String, Object>> tasks = approvalService.listMyPendingTasks();
+        assertTrue(tasks.stream().anyMatch(t -> submitted.getId().equals(((Number) t.get("requestId")).longValue())));
+
+        Long taskId = tasks.stream()
+                .filter(t -> submitted.getId().equals(((Number) t.get("requestId")).longValue()))
+                .map(t -> ((Number) t.get("taskId")).longValue())
+                .findFirst()
+                .orElseThrow();
+        approvalService.approveTask(taskId, true, "超管通过");
+
+        assertEquals(ApprovalStatus.APPROVED,
+                approvalRequestRepository.findById(submitted.getId()).orElseThrow().getStatus());
+        assertTrue(apiDefinitionRepository.findByApiCode("super-can-approve-api").isPresent());
+    }
+
+    @Test
+    void singleThemeAdminSubmissionUsesSuperAdminFallback() {
         SysUser loneAdmin = fixtures.createUser("lone_admin", UserRole.API_EDITOR);
         ThemeResponse loneTheme = fixtures.createThemeWithAdmins("单人主题", List.of(loneAdmin.getId()));
 
         TestAuth.login(loneAdmin.getId(), loneAdmin.getUsername(), UserRole.API_EDITOR);
-        BusinessException ex = assertThrows(BusinessException.class, () -> approvalService.submit(
+        ApprovalRequest submitted = approvalService.submit(
                 ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
-                loneTheme.getId(), "无审批人", apiPayload("lone-api", loneTheme.getId())));
-        assertTrue(ex.getMessage().contains("无其他主题管理员"));
+                loneTheme.getId(), "单人主题提交", apiPayload("lone-api", loneTheme.getId()));
+        assertEquals(ApprovalStatus.PENDING, submitted.getStatus());
     }
 
     @Test
@@ -171,6 +200,45 @@ class ApprovalFlowIntegrationTest {
         assertEquals(ApprovalStatus.APPROVED,
                 approvalRequestRepository.findById(submitted.getId()).orElseThrow().getStatus());
         assertTrue(apiDefinitionRepository.findByApiCode("super-approve-api").isPresent());
+    }
+
+    @Test
+    void deleteApiViaApproval() {
+        var ds = gatewayFixtures.createDatasource(theme.getId(), "delete-ds");
+        var published = gatewayFixtures.publishApi(theme.getId(), "delete-me", ds.getId());
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        BusinessException pending = assertThrows(BusinessException.class,
+                () -> apiManagementService.deleteDefinition(published.definition().getId()));
+        assertEquals(202, pending.getCode());
+
+        Long taskId = pendingTaskForAssignee(admin2.getId(), admin2.getUsername());
+        TestAuth.login(admin2.getId(), admin2.getUsername(), UserRole.API_EDITOR);
+        approvalService.approveTask(taskId, true, "同意删除");
+
+        assertTrue(apiDefinitionRepository.findById(published.definition().getId()).isEmpty());
+    }
+
+    @Test
+    void secondApprovalOnFinishedRequestFails() {
+        TestAuth.login(member.getId(), member.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                theme.getId(), "并发防重", apiPayload("dup-approve-api", theme.getId()));
+
+        var tasks = approvalTaskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(submitted.getId());
+        assertTrue(tasks.size() >= 2);
+        Long task1 = tasks.get(0).getId();
+        Long task2 = tasks.get(1).getId();
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        approvalService.approveTask(task1, true, "first");
+
+        TestAuth.login(admin2.getId(), admin2.getUsername(), UserRole.API_EDITOR);
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> approvalService.approveTask(task2, true, "second"));
+        assertTrue(ex.getMessage().contains("已处理") || ex.getMessage().contains("已结束"));
+        assertEquals(1, apiDefinitionRepository.findByApiCode("dup-approve-api").stream().count());
     }
 
     private ApiDefinitionRequest apiPayload(String code, Long themeId) {

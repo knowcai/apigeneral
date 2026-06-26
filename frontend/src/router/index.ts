@@ -7,7 +7,6 @@ import DashboardView from '../views/DashboardView.vue'
 import LogView from '../views/LogView.vue'
 import PolicyView from '../views/PolicyView.vue'
 import UserView from '../views/UserView.vue'
-import ConsumerView from '../views/ConsumerView.vue'
 import AuditView from '../views/AuditView.vue'
 import ThemeView from '../views/ThemeView.vue'
 import ApprovalView from '../views/ApprovalView.vue'
@@ -21,19 +20,18 @@ const router = createRouter({
     {
       path: '/',
       component: MainLayout,
-      redirect: '/datasources',
+      redirect: '/themes',
       meta: { requiresAuth: true },
       children: [
-        { path: 'datasources', component: DatasourceView },
-        { path: 'apis', component: ApiView },
-        { path: 'themes', component: ThemeView },
-        { path: 'approvals', component: ApprovalView },
-        { path: 'dashboard', component: DashboardView },
-        { path: 'logs', component: LogView },
-        { path: 'policy', component: PolicyView },
-        { path: 'consumers', component: ConsumerView, meta: { superAdmin: true } },
-        { path: 'users', component: UserView, meta: { superAdmin: true } },
-        { path: 'audit', component: AuditView }
+        { path: 'datasources', component: DatasourceView, meta: { titleKey: 'datasource.title' } },
+        { path: 'apis', component: ApiView, meta: { titleKey: 'api.title' } },
+        { path: 'themes', component: ThemeView, meta: { titleKey: 'theme.title' } },
+        { path: 'approvals', component: ApprovalView, meta: { titleKey: 'approval.title' } },
+        { path: 'dashboard', component: DashboardView, meta: { titleKey: 'dashboard.title' } },
+        { path: 'logs', component: LogView, meta: { titleKey: 'log.title' } },
+        { path: 'policy', component: PolicyView, meta: { titleKey: 'policy.title' } },
+        { path: 'users', component: UserView, meta: { superAdmin: true, titleKey: 'user.title' } },
+        { path: 'audit', component: AuditView, meta: { titleKey: 'audit.title' } }
       ]
     }
   ]
@@ -41,7 +39,7 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   if (to.path === '/login') {
-    if (auth.isLoggedIn.value) return '/datasources'
+    if (auth.isLoggedIn.value) return '/themes'
     return true
   }
   if (!auth.getToken()) {
@@ -57,7 +55,7 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.meta.superAdmin && !auth.isSuperAdmin.value) {
-    return '/datasources'
+    return '/themes'
   }
   return true
 })

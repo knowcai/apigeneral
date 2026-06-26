@@ -8,6 +8,8 @@ import com.apigateway.security.AuthzService;
 import com.apigateway.security.CurrentUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,8 @@ public class ApprovalService {
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
     private final ApprovalDiffService approvalDiffService;
+    private final ApprovalPayloadSanitizer payloadSanitizer;
+    private final ThemeApiKeyPickupService pickupService;
 
     public ApprovalService(
             ApprovalRequestRepository requestRepository,
@@ -41,7 +45,9 @@ public class ApprovalService {
             SysUserRepository userRepository,
             AuditLogService auditLogService,
             ObjectMapper objectMapper,
-            ApprovalDiffService approvalDiffService) {
+            ApprovalDiffService approvalDiffService,
+            ApprovalPayloadSanitizer payloadSanitizer,
+            ThemeApiKeyPickupService pickupService) {
         this.requestRepository = requestRepository;
         this.taskRepository = taskRepository;
         this.membershipRepository = membershipRepository;
@@ -53,6 +59,8 @@ public class ApprovalService {
         this.auditLogService = auditLogService;
         this.objectMapper = objectMapper;
         this.approvalDiffService = approvalDiffService;
+        this.payloadSanitizer = payloadSanitizer;
+        this.pickupService = pickupService;
     }
 
     @Transactional(noRollbackFor = BusinessException.class)
@@ -63,15 +71,16 @@ public class ApprovalService {
             return applyDirect(resourceType, resourceId, action, themeId, title, payload);
         }
         validateApprovers(themeId, currentUser.requireUser().getId());
-        validateSqlInPayload(payload);
+        ensureNoPendingDuplicate(resourceType, resourceId, action, themeId, payload);
         try {
+            Object storedPayload = payloadSanitizer.sanitizeForStorage(resourceType, payload);
             ApprovalRequest req = new ApprovalRequest();
             req.setThemeId(themeId);
             req.setResourceType(resourceType);
             req.setResourceId(resourceId);
             req.setAction(action);
             req.setTitle(title);
-            req.setPayload(objectMapper.writeValueAsString(payload));
+            req.setPayload(objectMapper.writeValueAsString(storedPayload));
             req.setSubmitterId(currentUser.requireUser().getId());
             req.setCurrentStepOrder(1);
             ApprovalRequest saved = requestRepository.save(req);
@@ -98,7 +107,8 @@ public class ApprovalService {
         req.setSubmitterId(currentUser.requireUser().getId());
         req.setResolvedAt(LocalDateTime.now());
         try {
-            req.setPayload(objectMapper.writeValueAsString(payload));
+            Object storedPayload = payloadSanitizer.sanitizeForStorage(resourceType, payload);
+            req.setPayload(objectMapper.writeValueAsString(storedPayload));
         } catch (Exception ignored) {
             req.setPayload("{}");
         }
@@ -107,40 +117,29 @@ public class ApprovalService {
 
     private void validateApprovers(Long themeId, Long submitterId) {
         if (listApproverIds(themeId, submitterId).isEmpty()) {
-            throw new BusinessException("无法提交：无其他主题管理员可审批，请联系超级管理员");
+            throw new BusinessException("无法提交：无可用审批人，请联系超级管理员");
         }
     }
 
+    /** 其他主题管理员 + 全部超管均可审批（任一通过即生效）。 */
     private List<Long> listApproverIds(Long themeId, Long submitterId) {
-        return membershipRepository.findByThemeId(themeId).stream()
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        membershipRepository.findByThemeId(themeId).stream()
                 .filter(m -> m.getRole() == ThemeMembershipRole.THEME_ADMIN)
                 .map(ThemeMembership::getUserId)
                 .filter(uid -> !uid.equals(submitterId))
-                .toList();
-    }
-
-    private void validateSqlInPayload(Object payload) {
-        if (payload instanceof ApiVersionRequest ver) {
-            SqlSecurityValidator.validateReadOnlySql(ver.getSqlTemplate());
-            return;
-        }
-        if (payload instanceof Map<?, ?> map) {
-            if (map.get("sqlTemplate") instanceof String sql) {
-                SqlSecurityValidator.validateReadOnlySql(sql);
-            }
-            Object version = map.get("version");
-            if (version instanceof ApiVersionRequest verReq) {
-                SqlSecurityValidator.validateReadOnlySql(verReq.getSqlTemplate());
-            } else if (version instanceof Map<?, ?> versionMap && versionMap.get("sqlTemplate") instanceof String nestedSql) {
-                SqlSecurityValidator.validateReadOnlySql(nestedSql);
-            }
-        }
+                .forEach(ids::add);
+        userRepository.findAll().stream()
+                .filter(u -> u.getRole() == UserRole.SUPER_ADMIN && Boolean.TRUE.equals(u.getEnabled()))
+                .map(SysUser::getId)
+                .forEach(ids::add);
+        return List.copyOf(ids);
     }
 
     private void createAdminTasks(ApprovalRequest request) {
         List<Long> approverIds = listApproverIds(request.getThemeId(), request.getSubmitterId());
         if (approverIds.isEmpty()) {
-            throw new BusinessException("无法提交：无其他主题管理员可审批");
+            throw new BusinessException("无法提交：无可用审批人");
         }
         int sort = 0;
         for (Long approverId : approverIds) {
@@ -155,7 +154,7 @@ public class ApprovalService {
     }
 
     @Transactional
-    public void approveTask(Long taskId, boolean approved, String comment) {
+    public ApproveTaskResult approveTask(Long taskId, boolean approved, String comment) {
         ApprovalTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new BusinessException("审批任务不存在"));
         if (!canApproveTask(task)) {
@@ -184,11 +183,12 @@ public class ApprovalService {
             request.setResolvedAt(LocalDateTime.now());
             requestRepository.save(request);
             auditLogService.log("REJECT", "APPROVAL", String.valueOf(request.getId()), request.getTitle(), comment);
-            return;
+            return ApproveTaskResult.builder().build();
         }
 
-        finishApproved(request);
+        ApproveTaskResult outcome = finishApproved(request);
         cancelPendingTasks(request.getId(), task.getId());
+        return outcome;
     }
 
     private boolean canApproveTask(ApprovalTask task) {
@@ -215,19 +215,109 @@ public class ApprovalService {
         }
     }
 
-    private void finishApproved(ApprovalRequest request) {
+    private ApproveTaskResult finishApproved(ApprovalRequest request) {
+        ApprovalRequest locked = requestRepository.findByIdForUpdate(request.getId())
+                .orElseThrow(() -> new BusinessException("审批单不存在"));
+        if (locked.getStatus() != ApprovalStatus.PENDING) {
+            throw new BusinessException("审批单已结束");
+        }
         try {
-            Object payload = objectMapper.readValue(request.getPayload(), Object.class);
-            applyService.apply(request.getResourceType(), request.getResourceId(), request.getAction(),
-                    request.getThemeId(), payload);
-            request.setStatus(ApprovalStatus.APPROVED);
-            request.setResolvedAt(LocalDateTime.now());
-            requestRepository.save(request);
-            auditLogService.log("APPROVE", "APPROVAL", String.valueOf(request.getId()), request.getTitle(), null);
+            Object payload = objectMapper.readValue(locked.getPayload(), Object.class);
+            payload = payloadSanitizer.restoreForApply(locked.getResourceType(), payload);
+            Optional<String> revealedKey = applyService.apply(locked.getResourceType(), locked.getResourceId(),
+                    locked.getAction(), locked.getThemeId(), payload);
+            locked.setStatus(ApprovalStatus.APPROVED);
+            locked.setResolvedAt(LocalDateTime.now());
+            requestRepository.save(locked);
+            auditLogService.log("APPROVE", "APPROVAL", String.valueOf(locked.getId()), locked.getTitle(), null);
+            if (revealedKey.isPresent() && shouldStoreKeyPickup(locked)) {
+                pickupService.store(locked.getThemeId(), locked.getId(), locked.getAction(), revealedKey.get());
+                return ApproveTaskResult.builder().themeKeyPickupPending(true).build();
+            }
+            return ApproveTaskResult.builder().apiKey(revealedKey.orElse(null)).build();
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
             throw new BusinessException("审批通过后应用变更失败: " + e.getMessage());
+        }
+    }
+
+    private boolean shouldStoreKeyPickup(ApprovalRequest request) {
+        if (request.getResourceType() != ApprovalResourceType.THEME_API_KEY) {
+            return false;
+        }
+        ApprovalAction action = request.getAction();
+        return action == ApprovalAction.CREATE || action == ApprovalAction.ROTATE_KEY;
+    }
+
+    public long countMyPendingTasks() {
+        return listMyPendingTasks().size();
+    }
+
+    @Transactional
+    public void withdrawRequest(Long requestId) {
+        ApprovalRequest request = requestRepository.findById(requestId)
+                .orElseThrow(() -> new BusinessException("审批单不存在"));
+        if (request.getStatus() != ApprovalStatus.PENDING) {
+            throw new BusinessException("审批单已结束，无法撤回");
+        }
+        Long uid = currentUser.requireUser().getId();
+        if (!request.getSubmitterId().equals(uid) && !authzService.isSuperAdmin()) {
+            throw new BusinessException(403, "仅提交人可撤回该审批");
+        }
+        cancelPendingTasks(request.getId(), null);
+        request.setStatus(ApprovalStatus.CANCELLED);
+        request.setResolvedAt(LocalDateTime.now());
+        requestRepository.save(request);
+        auditLogService.log("WITHDRAW", "APPROVAL", String.valueOf(request.getId()), request.getTitle(), null);
+    }
+
+    private void ensureNoPendingDuplicate(ApprovalResourceType resourceType, Long resourceId,
+                                          ApprovalAction action, Long themeId, Object payload) {
+        if (resourceId != null) {
+            if (requestRepository.existsByResourceTypeAndResourceIdAndStatus(
+                    resourceType, resourceId, ApprovalStatus.PENDING)) {
+                throw new BusinessException("该资源已有待审批变更，请等待处理完成后再提交");
+            }
+        }
+        if (resourceType == ApprovalResourceType.THEME_API_KEY) {
+            List<ApprovalRequest> themeKeyPending = requestRepository.findByThemeIdAndResourceTypeAndStatus(
+                    themeId, ApprovalResourceType.THEME_API_KEY, ApprovalStatus.PENDING);
+            if (!themeKeyPending.isEmpty()) {
+                throw new BusinessException("该主题 API Key 已有待审批变更，请等待处理或撤回后再提交");
+            }
+        }
+        if (resourceId != null) {
+            return;
+        }
+        if (action != ApprovalAction.CREATE) {
+            return;
+        }
+        List<ApprovalRequest> pending = requestRepository.findByThemeIdAndResourceTypeAndStatus(
+                themeId, resourceType, ApprovalStatus.PENDING);
+        for (ApprovalRequest existing : pending) {
+            if (existing.getAction() != ApprovalAction.CREATE) {
+                continue;
+            }
+            try {
+                if (resourceType == ApprovalResourceType.API_DEFINITION) {
+                    ApiDefinitionRequest existingReq = objectMapper.readValue(existing.getPayload(), ApiDefinitionRequest.class);
+                    ApiDefinitionRequest newReq = objectMapper.convertValue(payload, ApiDefinitionRequest.class);
+                    if (existingReq.getApiCode() != null && existingReq.getApiCode().equals(newReq.getApiCode())) {
+                        throw new BusinessException("该 API 编码已有待审批创建单");
+                    }
+                } else if (resourceType == ApprovalResourceType.DATASOURCE) {
+                    DatasourceRequest existingReq = objectMapper.readValue(existing.getPayload(), DatasourceRequest.class);
+                    DatasourceRequest newReq = objectMapper.convertValue(payload, DatasourceRequest.class);
+                    if (existingReq.getName() != null && existingReq.getName().equals(newReq.getName())) {
+                        throw new BusinessException("该数据源名称已有待审批创建单");
+                    }
+                }
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception ignored) {
+                // skip malformed payload
+            }
         }
     }
 
@@ -257,6 +347,20 @@ public class ApprovalService {
         return list.stream().map(this::requestView).collect(Collectors.toList());
     }
 
+    public List<Map<String, Object>> listHistory(int limit) {
+        authzService.requireAuthenticated();
+        int effectiveLimit = Math.min(Math.max(limit, 1), 200);
+        Page<ApprovalRequest> page = requestRepository.findByStatusInOrderByResolvedAtDesc(
+                List.of(ApprovalStatus.APPROVED, ApprovalStatus.REJECTED),
+                PageRequest.of(0, effectiveLimit));
+        List<ApprovalRequest> list = page.getContent();
+        if (!authzService.isSuperAdmin()) {
+            Long uid = currentUser.requireUser().getId();
+            list = list.stream().filter(r -> canViewRequest(r, uid)).collect(Collectors.toList());
+        }
+        return list.stream().map(this::historyView).collect(Collectors.toList());
+    }
+
     private boolean canViewRequest(ApprovalRequest r, Long uid) {
         if (r.getSubmitterId().equals(uid)) {
             return true;
@@ -280,9 +384,8 @@ public class ApprovalService {
             m.put("action", r.getAction());
             m.put("themeId", r.getThemeId());
             m.put("resourceId", r.getResourceId());
-            m.put("payload", r.getPayload());
-            m.put("diff", approvalDiffService.buildDiff(r.getResourceType(), r.getAction(),
-                    r.getResourceId(), r.getPayload()));
+            m.put("payload", payloadSanitizer.redactForDisplay(r.getPayload()));
+            attachDiff(m, r);
             m.put("submitterId", r.getSubmitterId());
             userRepository.findById(r.getSubmitterId()).ifPresent(u -> m.put("submitterName", u.getDisplayName()));
         }
@@ -298,11 +401,25 @@ public class ApprovalService {
         m.put("action", r.getAction());
         m.put("resourceId", r.getResourceId());
         m.put("status", r.getStatus());
-        m.put("payload", r.getPayload());
-        m.put("diff", approvalDiffService.buildDiff(r.getResourceType(), r.getAction(),
-                r.getResourceId(), r.getPayload()));
+        m.put("payload", payloadSanitizer.redactForDisplay(r.getPayload()));
+        attachDiff(m, r);
         m.put("createdAt", r.getCreatedAt());
         userRepository.findById(r.getSubmitterId()).ifPresent(u -> m.put("submitterName", u.getDisplayName()));
         return m;
+    }
+
+    private Map<String, Object> historyView(ApprovalRequest r) {
+        Map<String, Object> m = requestView(r);
+        m.put("resolvedAt", r.getResolvedAt());
+        return m;
+    }
+
+    private void attachDiff(Map<String, Object> target, ApprovalRequest r) {
+        ApprovalDiffResult diffResult = approvalDiffService.buildDiffResult(
+                r.getResourceType(), r.getAction(), r.getResourceId(), r.getPayload());
+        target.put("diff", diffResult.getDiff());
+        if (diffResult.getError() != null) {
+            target.put("diffError", diffResult.getError());
+        }
     }
 }

@@ -16,9 +16,9 @@
   --el-color-primary-light-9: #f5f5f5;
   --el-color-primary-dark-2: #000000;
 
-  --el-color-success: #000000;
-  --el-color-warning: #525252;
-  --el-color-danger: #000000;
+  --el-color-success: #15803d;
+  --el-color-warning: #b45309;
+  --el-color-danger: #dc2626;
   --el-color-info: #737373;
 
   --el-bg-color: #ffffff;
@@ -77,15 +77,15 @@ h2, h3 {
 }
 
 .el-button--success.is-link {
-  color: var(--bw-black);
+  color: var(--el-color-success);
+}
+
+.el-button--warning.is-link {
+  color: var(--el-color-warning);
 }
 
 .el-button--danger.is-link {
-  color: var(--bw-gray-500);
-}
-
-.el-button--danger.is-link:hover {
-  color: var(--bw-black);
+  color: var(--el-color-danger);
 }
 
 /* 表格 */
@@ -185,4 +185,22 @@ h2, h3 {
 .el-input-number .el-input__wrapper {
   padding-left: 8px;
   padding-right: 8px;
+}
+
+/* 页面卡片 */
+.data-card,
+.el-card {
+  border: 1px solid var(--bw-gray-200);
+}
+
+.page-header h2,
+.toolbar h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.mono,
+code {
+  font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
 }

@@ -11,4 +11,8 @@ public interface ApiDefinitionRepository extends JpaRepository<ApiDefinition, Lo
     Optional<ApiDefinition> findByApiCode(String apiCode);
 
     List<ApiDefinition> findByThemeIdIn(List<Long> themeIds);
+
+    long countByThemeId(Long themeId);
+
+    List<ApiDefinition> findByThemeId(Long themeId);
 }

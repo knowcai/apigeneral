@@ -35,7 +35,7 @@ public class OpenApiConfig {
             .description("""
                 Doris / ClickHouse / PostgreSQL 动态 SQL 数据 API 网关。
 
-                - **Data API**（`/api/data/**`）：对外数据查询，需 API Key
+                - **Data API**（`/api/data/**`）：对外数据查询，需 API Key；响应统一为 `ApiResponse`（`code=0` 时 `data` 为分页结果）
                 - **Admin API**（`/admin/**`）：管理配置，需 JWT 登录
 
                 管理端登录：`POST /admin/auth/login` 获取 JWT。
@@ -67,6 +67,12 @@ public class OpenApiConfig {
         return;
       }
       var queryResultSchema = new Schema<Map<String, Object>>().$ref("#/components/schemas/QueryResult");
+      var apiResponseSchema = new Schema<Map<String, Object>>()
+          .type("object")
+          .addProperty("code", new Schema<>().type("integer").example(0))
+          .addProperty("message", new Schema<>().type("string").example("success"))
+          .addProperty("data", queryResultSchema)
+          .addProperty("requestId", new Schema<>().type("string"));
       var errorSchema = new Schema<Map<String, Object>>().$ref("#/components/schemas/ApiResponse");
 
       var getOp = new io.swagger.v3.oas.models.Operation()
@@ -81,7 +87,7 @@ public class OpenApiConfig {
               queryParam("page", "页码，从 1 开始", true, "integer"),
               queryParam("pageSize", "每页条数", true, "integer")))
           .responses(new ApiResponses()
-              .addApiResponse("200", okResponse("查询成功", queryResultSchema))
+              .addApiResponse("200", okResponse("查询成功", apiResponseSchema))
               .addApiResponse("401", errorResponse("缺少或无效 API Key", errorSchema))
               .addApiResponse("403", errorResponse("无 API 授权", errorSchema))
               .addApiResponse("429", errorResponse("限流", errorSchema))

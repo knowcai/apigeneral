@@ -3,6 +3,7 @@ package com.apigateway.repository;
 import com.apigateway.entity.Theme;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface ThemeRepository extends JpaRepository<Theme, Long> {
@@ -14,4 +15,6 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
     boolean existsByName(String name);
 
     boolean existsByNameAndIdNot(String name, Long id);
+
+    List<Theme> findByEnabledFalse();
 }

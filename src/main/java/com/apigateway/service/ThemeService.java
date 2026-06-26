@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.LinkedHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -21,8 +23,12 @@ public class ThemeService {
     private final ThemeRepository themeRepository;
     private final ThemeMembershipRepository membershipRepository;
     private final SysUserRepository userRepository;
+    private final ConsumerRepository consumerRepository;
+    private final ApprovalRequestRepository approvalRequestRepository;
+    private final ThemeApiKeyPickupRepository pickupRepository;
     private final AuthzService authzService;
     private final AuditLogService auditLogService;
+    private final ApiDefinitionRepository apiDefinitionRepository;
 
     public List<ThemeResponse> listAccessible() {
         authzService.requireAuthenticated();
@@ -40,6 +46,15 @@ public class ThemeService {
     public ThemeResponse get(Long id) {
         requireThemeRead(id);
         return toResponse(themeRepository.findById(id).orElseThrow(() -> new BusinessException("主题不存在")));
+    }
+
+    public Map<String, Object> impactStats(Long themeId) {
+        requireThemeRead(themeId);
+        themeRepository.findById(themeId).orElseThrow(() -> new BusinessException("主题不存在"));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("themeId", themeId);
+        result.put("apiCount", apiDefinitionRepository.countByThemeId(themeId));
+        return result;
     }
 
     @Transactional
@@ -104,6 +119,26 @@ public class ThemeService {
             throw new BusinessException("主题已禁用");
         }
         return theme;
+    }
+
+    /** 对外数据 API：主题禁用时拒绝访问。 */
+    public Theme requireEnabledForDataAccess(Long themeId, String themeCode) {
+        Theme theme = resolveTheme(themeId, themeCode);
+        if (!Boolean.TRUE.equals(theme.getEnabled())) {
+            throw new BusinessException(403, "主题已禁用，无法访问该 API");
+        }
+        return theme;
+    }
+
+    private Theme resolveTheme(Long themeId, String themeCode) {
+        if (themeId != null) {
+            return themeRepository.findById(themeId).orElseThrow(() -> new BusinessException(404, "主题不存在"));
+        }
+        if (themeCode != null && !themeCode.isBlank()) {
+            return themeRepository.findByCode(themeCode.trim())
+                    .orElseThrow(() -> new BusinessException(404, "主题不存在"));
+        }
+        throw new BusinessException(404, "主题不存在");
     }
 
     public List<Long> accessibleThemeIds() {
@@ -268,7 +303,7 @@ public class ThemeService {
                     .build();
         }).toList();
 
-        return ThemeResponse.builder()
+        ThemeResponse.ThemeResponseBuilder builder = ThemeResponse.builder()
                 .id(theme.getId())
                 .code(String.valueOf(theme.getId()))
                 .name(theme.getName())
@@ -276,8 +311,30 @@ public class ThemeService {
                 .enabled(theme.getEnabled())
                 .members(memberDtos)
                 .createdAt(theme.getCreatedAt())
-                .myRole(resolveMyRole(theme.getId()))
-                .build();
+                .myRole(resolveMyRole(theme.getId()));
+        attachApiKeySummary(builder, theme.getId());
+        return builder.build();
+    }
+
+    private void attachApiKeySummary(ThemeResponse.ThemeResponseBuilder builder, Long themeId) {
+        var pending = approvalRequestRepository.findByThemeIdAndResourceTypeAndStatus(
+                themeId, ApprovalResourceType.THEME_API_KEY, ApprovalStatus.PENDING);
+        if (!pending.isEmpty()) {
+            ApprovalRequest request = pending.getFirst();
+            builder.apiKeyPhase("PENDING")
+                    .apiKeyPendingRequestId(request.getId())
+                    .apiKeyPendingAction(request.getAction().name());
+            consumerRepository.findByThemeId(themeId).ifPresent(c -> {
+                builder.apiKeyPrefix(c.getKeyPrefix()).apiKeyStatus(c.getStatus());
+            });
+            return;
+        }
+        consumerRepository.findByThemeId(themeId).ifPresentOrElse(c -> {
+            builder.apiKeyPrefix(c.getKeyPrefix())
+                    .apiKeyStatus(c.getStatus())
+                    .apiKeyPhase("DISABLED".equals(c.getStatus()) ? "DISABLED" : "ACTIVE");
+        }, () -> builder.apiKeyPhase("NONE"));
+        builder.apiKeyPickupPending(pickupRepository.existsByThemeId(themeId));
     }
 
     private ThemeMembershipRole resolveMyRole(Long themeId) {

@@ -13,6 +13,8 @@ public class ConsumerResponse {
     private Long id;
     private String name;
     private String department;
+    private Long themeId;
+    private String themeName;
     private String keyPrefix;
     private String status;
     private List<Long> apiIds;

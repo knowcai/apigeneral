@@ -14,6 +14,8 @@ gateway:
     default-admin-password: testadmin123
   consumer:
     bootstrap-key: ""
+  secrets:
+    encryption-key: test-encryption-key-for-unit-tests!!
   health:
     check-downstream-datasources: false
   access-log:

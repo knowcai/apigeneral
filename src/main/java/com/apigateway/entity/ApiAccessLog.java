@@ -59,6 +59,9 @@ public class ApiAccessLog {
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Column(name = "auth_mode", length = 20)
+    private String authMode;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

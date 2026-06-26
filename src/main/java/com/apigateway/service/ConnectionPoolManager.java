@@ -31,6 +31,7 @@ public class ConnectionPoolManager {
     private final DatasourceDriverRegistry driverRegistry;
     private final GlobalConnectionBudget globalConnectionBudget;
     private final GatewayMetrics gatewayMetrics;
+    private final DatasourcePasswordResolver passwordResolver;
     private final Map<Long, HikariDataSource> pools = new ConcurrentHashMap<>();
 
     public Connection getConnection(Long datasourceId) throws SQLException {
@@ -106,7 +107,7 @@ public class ConnectionPoolManager {
         config.setJdbcUrl(driver.buildJdbcUrl(ds));
         config.setDriverClassName(driver.driverClassName());
         config.setUsername(ds.getUsername());
-        config.setPassword(ds.getPassword());
+        config.setPassword(passwordResolver.resolvePlainPassword(ds));
         config.setMaximumPoolSize(intParam(params, "pool.maxActive", 10));
         config.setMinimumIdle(intParam(params, "pool.minIdle", 2));
         config.setConnectionTimeout(longParam(params, "connectTimeoutMs", 5000L));

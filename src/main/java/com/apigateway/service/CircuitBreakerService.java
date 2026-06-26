@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 /**
  * 单 API 熔断器：按 {@code apiCode} 独立维护状态，互不影响。
@@ -82,6 +83,27 @@ public class CircuitBreakerService {
             return objectMapper.readValue(policy.getCircuitFallback(), Map.class);
         } catch (Exception e) {
             return Map.of("code", 503, "message", "该 API 已熔断，请稍后重试", "data", null);
+        }
+    }
+
+    /** 当前熔断状态快照（供监控大盘展示）。 */
+    public Map<String, Object> describeState(String apiCode) {
+        synchronized (lockFor(apiCode)) {
+            CircuitBreakerSnapshot state = store.load(apiCode);
+            long now = System.currentTimeMillis();
+            pruneExpired(state, now);
+            int total = state.getRecentCalls().size();
+            int failures = failureCount(state);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("apiCode", apiCode);
+            m.put("status", state.getStatus().name());
+            m.put("windowCalls", total);
+            m.put("windowFailures", failures);
+            m.put("failureRatePercent", total > 0 ? Math.round(failures * 1000.0 / total) / 10.0 : 0);
+            if (state.getStatus() == CircuitBreakerSnapshot.Status.OPEN && state.getOpenUntilMs() > 0) {
+                m.put("openUntil", java.time.Instant.ofEpochMilli(state.getOpenUntilMs()).toString());
+            }
+            return m;
         }
     }
 

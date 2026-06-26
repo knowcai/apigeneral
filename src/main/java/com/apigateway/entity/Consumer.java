@@ -30,6 +30,9 @@ public class Consumer {
     @Column(length = 100)
     private String department;
 
+    @Column(name = "theme_id")
+    private Long themeId;
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
