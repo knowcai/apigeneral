@@ -142,6 +142,16 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="section" :header="t('dashboard.apiKeyUsage')">
+      <el-empty v-if="!(stats.apiKeyUsage || []).length" :description="t('common.noData')" />
+      <el-table v-else :data="stats.apiKeyUsage || []" stripe size="small" max-height="320">
+        <el-table-column prop="apiCode" :label="t('dashboard.apiCodeCol')" min-width="140" />
+        <el-table-column prop="consumerName" :label="t('dashboard.keyNameCol')" min-width="120" />
+        <el-table-column prop="consumerId" :label="t('dashboard.keyIdCol')" width="80" />
+        <el-table-column prop="count" :label="t('dashboard.callsCol')" width="100" />
+      </el-table>
+    </el-card>
+
     <el-card shadow="never" class="section" :header="t('dashboard.hourly')">
       <div v-if="hourlyBars.length" class="trend-chart" role="img" :aria-label="t('dashboard.hourly')">
         <div v-for="row in hourlyBars" :key="row.hour" class="trend-bar-col" :title="`${row.hour}: ${row.count}`">
@@ -268,7 +278,7 @@ onUnmounted(() => {
 .trend-chart { display: flex; align-items: flex-end; gap: 4px; height: 140px; margin-bottom: 16px; padding: 8px 4px 0; border-bottom: 1px solid #e5e5e5; overflow-x: auto; }
 .trend-bar-col { flex: 1; min-width: 28px; max-width: 48px; display: flex; flex-direction: column; align-items: center; height: 100%; }
 .trend-bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
-.trend-bar-fill { width: 70%; min-height: 2px; background: #2563eb; border-radius: 3px 3px 0 0; transition: height 0.3s; }
+.trend-bar-fill { width: 70%; min-height: 2px; border-radius: 3px 3px 0 0; transition: height 0.3s; }
 .trend-bar-label { font-size: 10px; color: #737373; margin-top: 4px; white-space: nowrap; }
 .hourly-table { margin-top: 8px; }
 </style>

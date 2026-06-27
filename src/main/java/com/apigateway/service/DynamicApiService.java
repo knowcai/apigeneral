@@ -1,5 +1,6 @@
 package com.apigateway.service;
 
+import com.apigateway.config.GatewaySecurityProperties;
 import com.apigateway.dto.QueryResult;
 import com.apigateway.entity.ApiDefinition;
 import com.apigateway.entity.ApiVersion;
@@ -27,6 +28,7 @@ public class DynamicApiService {
     private final ConsumerService consumerService;
     private final GatewayMetrics gatewayMetrics;
     private final ThemeService themeService;
+    private final GatewaySecurityProperties securityProperties;
 
     public QueryResult invoke(String theme, String apiCode, Integer versionNo, Map<String, Object> params,
                               Integer page, Integer pageSize, HttpServletRequest request) {
@@ -163,9 +165,11 @@ public class DynamicApiService {
     }
 
     private String resolveClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            return xff.split(",")[0].trim();
+        if (securityProperties.isTrustForwardedFor()) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (xff != null && !xff.isBlank()) {
+                return xff.split(",")[0].trim();
+            }
         }
         return request.getRemoteAddr();
     }

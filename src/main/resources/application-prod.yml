@@ -18,3 +18,16 @@ gateway:
     legacy-sunset-date: "2026-12-31"
   secrets:
     encryption-key: ${GATEWAY_SECRET_ENCRYPTION_KEY}
+  redis:
+    enabled: true
+  pool:
+    replica-count: ${GATEWAY_REPLICA_COUNT:1}
+  security:
+    swagger-public: false
+    actuator-public: false
+    cors-allowed-origins:
+      - ${GATEWAY_CORS_ORIGINS:http://localhost:5173}
+    cors-allow-credentials: true
+    trust-forwarded-for: true
+    login-rate-limit-per-minute: 10
+    jwt-cookie-secure: true

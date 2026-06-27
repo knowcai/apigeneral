@@ -26,7 +26,7 @@
             <el-table-column :label="t('col.actions')" width="160" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="canEditApi(row)" link @click.stop="editDef(row)">{{ t('common.edit') }}</el-button>
-                <el-button v-if="canEditApi(row)" link type="danger" @click.stop="deleteDef(row)">{{ t('common.delete') }}</el-button>
+                <el-button v-if="auth.canDeleteApi(row, themes)" link type="danger" @click.stop="deleteDef(row)">{{ t('common.delete') }}</el-button>
               </template>
             </el-table-column>
           </el-table>

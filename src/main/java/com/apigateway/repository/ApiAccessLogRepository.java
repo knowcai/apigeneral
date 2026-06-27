@@ -57,4 +57,22 @@ public interface ApiAccessLogRepository extends JpaRepository<ApiAccessLog, Long
 
     @Query("SELECT FUNCTION('date_trunc', 'hour', a.createdAt), COUNT(a) FROM ApiAccessLog a WHERE a.createdAt >= :since AND a.apiCode IN :apiCodes GROUP BY FUNCTION('date_trunc', 'hour', a.createdAt) ORDER BY FUNCTION('date_trunc', 'hour', a.createdAt)")
     List<Object[]> hourlyCountsSinceAndApiCodeIn(@Param("since") LocalDateTime since, @Param("apiCodes") List<String> apiCodes);
+
+    @Query("""
+            SELECT a.apiCode, COALESCE(a.consumerName, '—'), a.consumerId, COUNT(a)
+            FROM ApiAccessLog a
+            WHERE a.createdAt >= :since AND a.consumerId IS NOT NULL
+            GROUP BY a.apiCode, a.consumerName, a.consumerId
+            ORDER BY COUNT(a) DESC
+            """)
+    List<Object[]> apiKeyUsageSince(@Param("since") LocalDateTime since, Pageable pageable);
+
+    @Query("""
+            SELECT a.apiCode, COALESCE(a.consumerName, '—'), a.consumerId, COUNT(a)
+            FROM ApiAccessLog a
+            WHERE a.createdAt >= :since AND a.consumerId IS NOT NULL AND a.apiCode IN :apiCodes
+            GROUP BY a.apiCode, a.consumerName, a.consumerId
+            ORDER BY COUNT(a) DESC
+            """)
+    List<Object[]> apiKeyUsageSinceAndApiCodeIn(@Param("since") LocalDateTime since, @Param("apiCodes") List<String> apiCodes, Pageable pageable);
 }

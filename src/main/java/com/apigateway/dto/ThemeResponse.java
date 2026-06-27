@@ -22,16 +22,13 @@ public class ThemeResponse {
     /** 当前登录用户在该主题下的角色，超级管理员为 null */
     private ThemeMembershipRole myRole;
 
-    /** 主题 API Key 摘要（仅列表/详情展示） */
-    private String apiKeyPrefix;
-    private String apiKeyStatus;
-    /** NONE | PENDING | ACTIVE | DISABLED */
+    /** 主题 API Key 摘要 */
+    private Integer apiKeyUsedSlots;
+    private Integer apiKeyMaxSlots;
+    /** NONE | ACTIVE */
     private String apiKeyPhase;
-    private Long apiKeyPendingRequestId;
-    /** CREATE | ROTATE_KEY | DELETE */
-    private String apiKeyPendingAction;
-    /** 审批通过后完整 Key 待主题管理员领取（先到先得，领取后全员不可再领） */
-    private Boolean apiKeyPickupPending;
+    /** 主题下 API 数量（超管删除前校验） */
+    private Long apiCount;
 
     @Data
     @Builder

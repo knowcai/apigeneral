@@ -57,10 +57,11 @@ public class SqlExecutionService {
         }
     }
 
-    /** 管理台试跑：强制 LIMIT 1，不对外暴露。只读数据源仍强制 SELECT 类语句。 */
+    /** 管理台试跑：强制 LIMIT 1。非超管或非只读数据源时仍只允许 SELECT 类语句。 */
     public QueryResult executeTest(Datasource datasource, String sqlTemplate, Map<String, Object> params,
-                                   int timeoutSec) {
-        if (!Boolean.FALSE.equals(datasource.getReadonly())) {
+                                   int timeoutSec, boolean superAdmin) {
+        boolean allowWrite = superAdmin && Boolean.FALSE.equals(datasource.getReadonly());
+        if (!allowWrite) {
             SqlSecurityValidator.validateReadOnlySql(sqlTemplate);
         }
         SqlTemplateEngine.ParsedSql parsed = SqlTemplateEngine.parse(sqlTemplate, params);

@@ -2,7 +2,7 @@ package com.apigateway.controller.admin;
 
 import com.apigateway.dto.ApiResponse;
 import com.apigateway.dto.ConsumerCreateResponse;
-import com.apigateway.dto.ConsumerResponse;
+import com.apigateway.dto.ThemeApiKeyListResponse;
 import com.apigateway.dto.ThemeApiKeyRequest;
 import com.apigateway.dto.ThemeMembersUpdateRequest;
 import com.apigateway.dto.ThemeRequest;
@@ -45,6 +45,12 @@ public class AdminThemeController {
         return ApiResponse.ok(themeService.update(id, req));
     }
 
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        themeService.delete(id);
+        return ApiResponse.ok(null);
+    }
+
     @PutMapping("/{id}/members")
     public ApiResponse<ThemeResponse> updateMembers(@PathVariable Long id,
                                                     @RequestBody ThemeMembersUpdateRequest req) {
@@ -61,36 +67,25 @@ public class AdminThemeController {
         return ApiResponse.ok(themeService.impactStats(id));
     }
 
-    @GetMapping("/{id}/api-key")
-    public ApiResponse<ConsumerResponse> apiKey(@PathVariable Long id) {
-        return ApiResponse.ok(themeApiKeyService.getByTheme(id));
+    @GetMapping("/{id}/api-keys")
+    public ApiResponse<ThemeApiKeyListResponse> listApiKeys(@PathVariable Long id) {
+        return ApiResponse.ok(themeApiKeyService.listKeys(id));
     }
 
-    @PostMapping("/{id}/api-key")
+    @PostMapping("/{id}/api-keys")
     public ApiResponse<ConsumerCreateResponse> createApiKey(@PathVariable Long id,
                                                             @Valid @RequestBody ThemeApiKeyRequest req) {
         return ApiResponse.ok(themeApiKeyService.create(id, req));
     }
 
-    @PutMapping("/{id}/api-key")
-    public ApiResponse<ConsumerResponse> updateApiKey(@PathVariable Long id,
-                                                      @Valid @RequestBody ThemeApiKeyRequest req) {
-        return ApiResponse.ok(themeApiKeyService.update(id, req));
-    }
-
-    @PostMapping("/{id}/api-key/rotate")
-    public ApiResponse<ConsumerCreateResponse> rotateApiKey(@PathVariable Long id) {
-        return ApiResponse.ok(themeApiKeyService.rotate(id));
-    }
-
-    @PostMapping("/{id}/api-key/revoke")
-    public ApiResponse<Void> revokeApiKey(@PathVariable Long id) {
-        themeApiKeyService.revoke(id);
+    @DeleteMapping("/{id}/api-keys/{keyId}")
+    public ApiResponse<Void> deleteApiKey(@PathVariable Long id, @PathVariable Long keyId) {
+        themeApiKeyService.deleteKey(id, keyId);
         return ApiResponse.ok(null);
     }
 
-    @PostMapping("/{id}/api-key/claim")
-    public ApiResponse<ConsumerCreateResponse> claimApiKey(@PathVariable Long id) {
-        return ApiResponse.ok(themeApiKeyService.claimPickup(id));
+    @PostMapping("/{id}/api-keys/{keyId}/claim")
+    public ApiResponse<ConsumerCreateResponse> claimApiKey(@PathVariable Long id, @PathVariable Long keyId) {
+        return ApiResponse.ok(themeApiKeyService.claimPickup(id, keyId));
     }
 }

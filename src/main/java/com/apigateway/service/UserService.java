@@ -10,6 +10,8 @@ import com.apigateway.repository.SysUserRepository;
 import com.apigateway.security.AuthUser;
 import com.apigateway.security.AuthzService;
 import com.apigateway.security.CurrentUser;
+import com.apigateway.config.GatewaySecurityProperties;
+import com.apigateway.security.LoginRateLimiter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -29,8 +31,10 @@ public class UserService {
     private final AuthzService authzService;
     private final CurrentUser currentUser;
     private final AuditLogService auditLogService;
+    private final LoginRateLimiter loginRateLimiter;
 
-    public Map<String, Object> login(LoginRequest req) {
+    public Map<String, Object> login(LoginRequest req, String clientIp) {
+        loginRateLimiter.check(clientIp, req.getUsername());
         SysUser user = repository.findByUsername(req.getUsername())
                 .orElseThrow(() -> new BusinessException(401, "用户名或密码错误"));
         if (!Boolean.TRUE.equals(user.getEnabled())) {
@@ -99,6 +103,8 @@ public class UserService {
         UserRole role = user.getRole();
         if (role == UserRole.SUPER_ADMIN) {
             req.setRole(UserRole.SUPER_ADMIN);
+        } else if (req.getRole() == UserRole.API_VIEWER) {
+            req.setRole(UserRole.API_VIEWER);
         } else {
             req.setRole(UserRole.API_EDITOR);
         }

@@ -167,14 +167,15 @@ public class ApiManagementService {
     }
 
     public List<ApiVersion> listVersions(Long apiId) {
-        authzService.requireApiRead();
+        getDefinition(apiId);
         return versionRepository.findByApiIdOrderByVersionNoDesc(apiId);
     }
 
     public ApiVersion getVersion(Long versionId) {
-        authzService.requireApiRead();
-        return versionRepository.findById(versionId)
+        ApiVersion version = versionRepository.findById(versionId)
                 .orElseThrow(() -> new BusinessException("版本不存在"));
+        getDefinition(version.getApiId());
+        return version;
     }
 
     @Transactional(noRollbackFor = BusinessException.class)
@@ -456,6 +457,6 @@ public class ApiManagementService {
             timeoutSec = n.intValue();
         }
         return sqlExecutionService.executeTest(datasource, version.getSqlTemplate(),
-                params != null ? params : Map.of(), timeoutSec);
+                params != null ? params : Map.of(), timeoutSec, authzService.isSuperAdmin());
     }
 }

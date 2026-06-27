@@ -16,8 +16,14 @@ public class ThemeApiKeyPickup {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "theme_id", nullable = false, unique = true)
+    @Column(name = "theme_id", nullable = false)
     private Long themeId;
+
+    @Column(name = "consumer_id", nullable = false, unique = true)
+    private Long consumerId;
+
+    @Column(name = "submitter_id", nullable = false)
+    private Long submitterId;
 
     @Column(name = "approval_request_id")
     private Long approvalRequestId;

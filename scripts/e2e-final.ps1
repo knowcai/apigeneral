@@ -88,7 +88,7 @@ $ver = (Api POST "/admin/apis/$($api.id)/versions" $SA (@{
     datasourceId = $ds.id; sqlTemplate = "SELECT name FROM system.databases LIMIT 5"
 })).J.data
 Api POST "/admin/apis/versions/$($ver.id)/publish" $SA $null | Out-Null
-$key = (Api POST "/admin/themes/$($theme.id)/api-key" $SA (@{ name = "FE-Key" })).J.data.apiKey
+$key = (Api POST "/admin/themes/$($theme.id)/api-keys" $SA (@{ name = "FE-Key" })).J.data.apiKey
 $url = "/api/data/v$($ver.versionNo)/$($theme.code)/fe_api_${ts}?page=1&pageSize=10"
 Record "PASS" "No key -> 401" ($(Api GET $url @{} $null).S -eq 401)
 Record "PASS" "Data API OK" ($(Api GET $url @{"X-Api-Key"=$key} $null).S -eq 200)

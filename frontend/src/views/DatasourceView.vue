@@ -2,7 +2,7 @@
   <div>
     <div class="toolbar">
       <h2>{{ t('datasource.title') }}</h2>
-      <el-button v-if="auth.canEditDatasource.value" type="primary" @click="openCreate">{{ t('datasource.create') }}</el-button>
+      <el-button v-if="auth.canCreateApi.value" type="primary" @click="openCreate">{{ t('datasource.create') }}</el-button>
       <el-tag v-if="auth.canEditDatasource.value && !auth.isSuperAdmin.value" type="info">{{ t('datasource.needApproval') }}</el-tag>
       <el-tag v-else-if="!auth.canEditDatasource.value" type="info">{{ t('common.readonly') }}</el-tag>
     </div>
@@ -23,7 +23,7 @@
           <template v-if="auth.canEditDatasource.value">
             <el-button link type="primary" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
             <el-button link @click="testConn(row)">{{ t('common.test') }}</el-button>
-            <el-button link type="danger" @click="remove(row)">{{ t('common.delete') }}</el-button>
+            <el-button v-if="auth.canDeleteDatasource(row, themes)" link type="danger" @click="remove(row)">{{ t('common.delete') }}</el-button>
           </template>
           <el-button v-else link @click="openEdit(row)">{{ t('common.view') }}</el-button>
         </template>

@@ -1,8 +1,8 @@
 package com.apigateway.controller.admin;
 
 import com.apigateway.dto.AccessLogQuery;
+import com.apigateway.dto.AccessLogView;
 import com.apigateway.dto.ApiResponse;
-import com.apigateway.entity.ApiAccessLog;
 import com.apigateway.service.AccessLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -25,7 +25,7 @@ public class AdminAccessLogController {
     private final AccessLogService accessLogService;
 
     @GetMapping
-    public ApiResponse<Page<ApiAccessLog>> list(
+    public ApiResponse<Page<AccessLogView>> list(
             @RequestParam(required = false) String apiCode,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String consumerName,

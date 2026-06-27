@@ -45,6 +45,19 @@ gateway:
   pool:
     global-max-connections: 200
     acquire-timeout-ms: 5000
+    replica-count: 1
+  security:
+    swagger-public: true
+    actuator-public: true
+    cors-allowed-origins:
+      - http://localhost:5173
+      - http://localhost:8080
+      - http://localhost:8088
+    cors-allow-credentials: true
+    trust-forwarded-for: false
+    login-rate-limit-per-minute: 20
+    jwt-cookie-name: gw_token
+    jwt-cookie-secure: false
   access-log:
     cleanup-enabled: true
     retention-days: 90

@@ -108,6 +108,7 @@ public class MonitoringService {
 
         appendDisabledThemeMetrics(result, since, scope);
         appendPoolMetrics(result, scope);
+        appendApiKeyUsageMetrics(result, since, scope);
 
         if (scope.global() && consumerKeyProperties.isLegacyEnabled()) {
             appendLegacyKeyMetrics(result, since);
@@ -162,6 +163,23 @@ public class MonitoringService {
         result.put("datasourcePools", pools);
     }
 
+    private void appendApiKeyUsageMetrics(Map<String, Object> result, LocalDateTime since,
+                                          ObservabilityScopeService.Scope scope) {
+        List<Object[]> rows = scope.global()
+                ? repository.apiKeyUsageSince(since, PageRequest.of(0, 50))
+                : repository.apiKeyUsageSinceAndApiCodeIn(since, List.copyOf(scope.apiCodes()), PageRequest.of(0, 50));
+        List<Map<String, Object>> usage = new ArrayList<>();
+        for (Object[] row : rows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("apiCode", row[0]);
+            item.put("consumerName", row[1]);
+            item.put("consumerId", row[2] != null ? ((Number) row[2]).longValue() : null);
+            item.put("count", ((Number) row[3]).longValue());
+            usage.add(item);
+        }
+        result.put("apiKeyUsage", usage);
+    }
+
     private List<Map<String, Object>> buildCircuitStates(ObservabilityScopeService.Scope scope) {
         List<ApiDefinition> defs = scope.global()
                 ? apiDefinitionRepository.findAll()
@@ -204,6 +222,7 @@ public class MonitoringService {
         result.put("topRateLimitedApis", List.of());
         result.put("circuitStates", List.of());
         result.put("hourly", List.of());
+        result.put("apiKeyUsage", List.of());
         result.put("disabledThemeCalls", 0L);
         result.put("disabledThemeCount", 0);
         result.put("datasourcePools", List.of());

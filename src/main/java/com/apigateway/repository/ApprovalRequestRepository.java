@@ -1,5 +1,6 @@
 package com.apigateway.repository;
 
+import com.apigateway.entity.ApprovalAction;
 import com.apigateway.entity.ApprovalResourceType;
 import com.apigateway.entity.ApprovalRequest;
 import com.apigateway.entity.ApprovalStatus;
@@ -28,6 +29,9 @@ public interface ApprovalRequestRepository extends JpaRepository<ApprovalRequest
     boolean existsByResourceTypeAndResourceIdAndStatus(ApprovalResourceType resourceType, Long resourceId, ApprovalStatus status);
 
     List<ApprovalRequest> findByThemeIdAndResourceTypeAndStatus(Long themeId, ApprovalResourceType resourceType, ApprovalStatus status);
+
+    long countByThemeIdAndResourceTypeAndStatusAndAction(
+            Long themeId, ApprovalResourceType resourceType, ApprovalStatus status, ApprovalAction action);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM ApprovalRequest r WHERE r.id = :id")

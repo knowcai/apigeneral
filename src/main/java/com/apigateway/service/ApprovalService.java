@@ -32,7 +32,7 @@ public class ApprovalService {
     private final ObjectMapper objectMapper;
     private final ApprovalDiffService approvalDiffService;
     private final ApprovalPayloadSanitizer payloadSanitizer;
-    private final ThemeApiKeyPickupService pickupService;
+    private final @Lazy ThemeApiKeyService themeApiKeyService;
 
     public ApprovalService(
             ApprovalRequestRepository requestRepository,
@@ -47,7 +47,7 @@ public class ApprovalService {
             ObjectMapper objectMapper,
             ApprovalDiffService approvalDiffService,
             ApprovalPayloadSanitizer payloadSanitizer,
-            ThemeApiKeyPickupService pickupService) {
+            @Lazy ThemeApiKeyService themeApiKeyService) {
         this.requestRepository = requestRepository;
         this.taskRepository = taskRepository;
         this.membershipRepository = membershipRepository;
@@ -60,7 +60,7 @@ public class ApprovalService {
         this.objectMapper = objectMapper;
         this.approvalDiffService = approvalDiffService;
         this.payloadSanitizer = payloadSanitizer;
-        this.pickupService = pickupService;
+        this.themeApiKeyService = themeApiKeyService;
     }
 
     @Transactional(noRollbackFor = BusinessException.class)
@@ -129,8 +129,7 @@ public class ApprovalService {
                 .map(ThemeMembership::getUserId)
                 .filter(uid -> !uid.equals(submitterId))
                 .forEach(ids::add);
-        userRepository.findAll().stream()
-                .filter(u -> u.getRole() == UserRole.SUPER_ADMIN && Boolean.TRUE.equals(u.getEnabled()))
+        userRepository.findByRoleAndEnabled(UserRole.SUPER_ADMIN, true).stream()
                 .map(SysUser::getId)
                 .forEach(ids::add);
         return List.copyOf(ids);
@@ -157,14 +156,23 @@ public class ApprovalService {
     public ApproveTaskResult approveTask(Long taskId, boolean approved, String comment) {
         ApprovalTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new BusinessException("审批任务不存在"));
+        ApprovalRequest request = requestRepository.findById(task.getRequestId())
+                .orElseThrow(() -> new BusinessException("审批单不存在"));
+        syncApproverTasks(request);
+        Long uid = currentUser.requireUser().getId();
         if (!canApproveTask(task)) {
-            throw new BusinessException(403, "无权审批该任务");
+            if (isEligibleApprover(request, uid)) {
+                task = taskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(request.getId()).stream()
+                        .filter(t -> t.getAssigneeId().equals(uid) && t.getStatus() == ApprovalStatus.PENDING)
+                        .findFirst()
+                        .orElseThrow(() -> new BusinessException(403, "无权审批该任务"));
+            } else {
+                throw new BusinessException(403, "无权审批该任务");
+            }
         }
         if (task.getStatus() != ApprovalStatus.PENDING) {
             throw new BusinessException("该任务已处理");
         }
-        ApprovalRequest request = requestRepository.findById(task.getRequestId())
-                .orElseThrow(() -> new BusinessException("审批单不存在"));
         if (request.getStatus() != ApprovalStatus.PENDING) {
             throw new BusinessException("审批单已结束");
         }
@@ -203,7 +211,50 @@ public class ApprovalService {
         if (request == null) {
             return false;
         }
-        return themeService.isThemeAdmin(request.getThemeId(), uid);
+        return isEligibleApprover(request, uid);
+    }
+
+    /** 提交后可新增主题管理员；按当前角色动态补齐待办，避免「后设管理员无法审批」。 */
+    private void syncApproverTasks(ApprovalRequest request) {
+        if (request.getStatus() != ApprovalStatus.PENDING) {
+            return;
+        }
+        List<Long> approverIds = listApproverIds(request.getThemeId(), request.getSubmitterId());
+        List<ApprovalTask> existing = taskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(request.getId());
+        Set<Long> existingAssignees = existing.stream()
+                .map(ApprovalTask::getAssigneeId)
+                .collect(Collectors.toSet());
+        int maxSort = existing.stream().mapToInt(ApprovalTask::getSortOrder).max().orElse(-1);
+        for (Long approverId : approverIds) {
+            if (existingAssignees.contains(approverId)) {
+                continue;
+            }
+            ApprovalTask t = new ApprovalTask();
+            t.setRequestId(request.getId());
+            t.setStepOrder(1);
+            t.setAssigneeId(approverId);
+            t.setSortOrder(++maxSort);
+            t.setStatus(ApprovalStatus.PENDING);
+            taskRepository.save(t);
+        }
+    }
+
+    private void syncPendingTasksForUser(Long userId) {
+        for (ApprovalRequest r : requestRepository.findByStatusOrderByCreatedAtDesc(ApprovalStatus.PENDING)) {
+            if (isEligibleApprover(r, userId)) {
+                syncApproverTasks(r);
+            }
+        }
+    }
+
+    private boolean isEligibleApprover(ApprovalRequest request, Long userId) {
+        if (request.getSubmitterId().equals(userId)) {
+            return false;
+        }
+        if (userRepository.findById(userId).map(u -> u.getRole() == UserRole.SUPER_ADMIN).orElse(false)) {
+            return true;
+        }
+        return themeService.isThemeAdminMember(request.getThemeId(), userId);
     }
 
     private void cancelPendingTasks(Long requestId, Long exceptTaskId) {
@@ -225,13 +276,14 @@ public class ApprovalService {
             Object payload = objectMapper.readValue(locked.getPayload(), Object.class);
             payload = payloadSanitizer.restoreForApply(locked.getResourceType(), payload);
             Optional<String> revealedKey = applyService.apply(locked.getResourceType(), locked.getResourceId(),
-                    locked.getAction(), locked.getThemeId(), payload);
+                    locked.getAction(), locked.getThemeId(), payload,
+                    locked.getSubmitterId(), locked.getId());
             locked.setStatus(ApprovalStatus.APPROVED);
             locked.setResolvedAt(LocalDateTime.now());
             requestRepository.save(locked);
             auditLogService.log("APPROVE", "APPROVAL", String.valueOf(locked.getId()), locked.getTitle(), null);
-            if (revealedKey.isPresent() && shouldStoreKeyPickup(locked)) {
-                pickupService.store(locked.getThemeId(), locked.getId(), locked.getAction(), revealedKey.get());
+            if (locked.getResourceType() == ApprovalResourceType.THEME_API_KEY
+                    && locked.getAction() == ApprovalAction.CREATE) {
                 return ApproveTaskResult.builder().themeKeyPickupPending(true).build();
             }
             return ApproveTaskResult.builder().apiKey(revealedKey.orElse(null)).build();
@@ -242,16 +294,24 @@ public class ApprovalService {
         }
     }
 
-    private boolean shouldStoreKeyPickup(ApprovalRequest request) {
-        if (request.getResourceType() != ApprovalResourceType.THEME_API_KEY) {
-            return false;
+    @Transactional
+    public void revokePendingTasksForRemovedThemeAdmin(Long themeId, Long userId) {
+        for (ApprovalRequest r : requestRepository.findByThemeIdAndStatusOrderByCreatedAtDesc(
+                themeId, ApprovalStatus.PENDING)) {
+            for (ApprovalTask t : taskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(r.getId())) {
+                if (t.getAssigneeId().equals(userId) && t.getStatus() == ApprovalStatus.PENDING) {
+                    t.setStatus(ApprovalStatus.CANCELLED);
+                    taskRepository.save(t);
+                }
+            }
         }
-        ApprovalAction action = request.getAction();
-        return action == ApprovalAction.CREATE || action == ApprovalAction.ROTATE_KEY;
     }
 
+    @Transactional
     public long countMyPendingTasks() {
-        return listMyPendingTasks().size();
+        Long uid = currentUser.requireUser().getId();
+        syncPendingTasksForUser(uid);
+        return selectPendingTasksForUser(uid).size();
     }
 
     @Transactional
@@ -280,12 +340,8 @@ public class ApprovalService {
                 throw new BusinessException("该资源已有待审批变更，请等待处理完成后再提交");
             }
         }
-        if (resourceType == ApprovalResourceType.THEME_API_KEY) {
-            List<ApprovalRequest> themeKeyPending = requestRepository.findByThemeIdAndResourceTypeAndStatus(
-                    themeId, ApprovalResourceType.THEME_API_KEY, ApprovalStatus.PENDING);
-            if (!themeKeyPending.isEmpty()) {
-                throw new BusinessException("该主题 API Key 已有待审批变更，请等待处理或撤回后再提交");
-            }
+        if (resourceType == ApprovalResourceType.THEME_API_KEY && action == ApprovalAction.CREATE) {
+            themeApiKeyService.ensureSlotAvailable(themeId);
         }
         if (resourceId != null) {
             return;
@@ -321,20 +377,42 @@ public class ApprovalService {
         }
     }
 
+    @Transactional
     public List<Map<String, Object>> listMyPendingTasks() {
-        if (authzService.isSuperAdmin()) {
-            return taskRepository.findByStatusOrderByIdDesc(ApprovalStatus.PENDING).stream()
-                    .map(this::taskView)
-                    .collect(Collectors.toList());
-        }
         Long uid = currentUser.requireUser().getId();
-        return taskRepository.findByAssigneeIdAndStatusOrderByIdDesc(uid, ApprovalStatus.PENDING).stream()
-                .filter(t -> {
-                    ApprovalRequest r = requestRepository.findById(t.getRequestId()).orElse(null);
-                    return r != null && themeService.isThemeAdmin(r.getThemeId(), uid);
-                })
+        syncPendingTasksForUser(uid);
+        return selectPendingTasksForUser(uid).stream()
                 .map(this::taskView)
                 .collect(Collectors.toList());
+    }
+
+    /** 同一审批单可能有多条待办（超管 + 各主题管理员）；展示时按 request 去重。 */
+    private List<ApprovalTask> selectPendingTasksForUser(Long uid) {
+        List<ApprovalTask> source = authzService.isSuperAdmin()
+                ? taskRepository.findByStatusOrderByIdDesc(ApprovalStatus.PENDING)
+                : taskRepository.findByAssigneeIdAndStatusOrderByIdDesc(uid, ApprovalStatus.PENDING);
+        Map<Long, ApprovalTask> byRequest = new LinkedHashMap<>();
+        for (ApprovalTask t : source) {
+            if (t.getStatus() != ApprovalStatus.PENDING) {
+                continue;
+            }
+            ApprovalRequest r = requestRepository.findById(t.getRequestId()).orElse(null);
+            if (r == null || r.getStatus() != ApprovalStatus.PENDING || !isEligibleApprover(r, uid)) {
+                continue;
+            }
+            byRequest.merge(t.getRequestId(), t, (a, b) -> preferTaskForUser(uid, a, b));
+        }
+        return new ArrayList<>(byRequest.values());
+    }
+
+    private ApprovalTask preferTaskForUser(Long uid, ApprovalTask a, ApprovalTask b) {
+        if (a.getAssigneeId().equals(uid)) {
+            return a;
+        }
+        if (b.getAssigneeId().equals(uid)) {
+            return b;
+        }
+        return a;
     }
 
     public List<Map<String, Object>> listPendingRequests() {
@@ -404,6 +482,7 @@ public class ApprovalService {
         m.put("payload", payloadSanitizer.redactForDisplay(r.getPayload()));
         attachDiff(m, r);
         m.put("createdAt", r.getCreatedAt());
+        m.put("submitterId", r.getSubmitterId());
         userRepository.findById(r.getSubmitterId()).ifPresent(u -> m.put("submitterName", u.getDisplayName()));
         return m;
     }
@@ -411,7 +490,42 @@ public class ApprovalService {
     private Map<String, Object> historyView(ApprovalRequest r) {
         Map<String, Object> m = requestView(r);
         m.put("resolvedAt", r.getResolvedAt());
+        attachResolver(r, m);
         return m;
+    }
+
+    /** 已通过/已驳回单：填充实际审批人（含超管直生效场景）。 */
+    private void attachResolver(ApprovalRequest r, Map<String, Object> m) {
+        if (r.getStatus() != ApprovalStatus.APPROVED && r.getStatus() != ApprovalStatus.REJECTED) {
+            return;
+        }
+        Optional<ApprovalTask> acted = taskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(r.getId())
+                .stream()
+                .filter(t -> t.getStatus() == ApprovalStatus.APPROVED || t.getStatus() == ApprovalStatus.REJECTED)
+                .filter(t -> t.getActedAt() != null)
+                .max(Comparator.comparing(ApprovalTask::getActedAt));
+        if (acted.isPresent()) {
+            ApprovalTask task = acted.get();
+            m.put("approverId", task.getAssigneeId());
+            userRepository.findById(task.getAssigneeId()).ifPresent(u ->
+                    m.put("approverName", displayName(u)));
+            if (task.getComment() != null && !task.getComment().isBlank()) {
+                m.put("approverComment", task.getComment());
+            }
+            return;
+        }
+        if (r.getStatus() == ApprovalStatus.APPROVED) {
+            m.put("directApply", true);
+            userRepository.findById(r.getSubmitterId()).ifPresent(u ->
+                    m.put("approverName", displayName(u)));
+        }
+    }
+
+    private String displayName(SysUser u) {
+        if (u.getDisplayName() != null && !u.getDisplayName().isBlank()) {
+            return u.getDisplayName();
+        }
+        return u.getUsername();
     }
 
     private void attachDiff(Map<String, Object> target, ApprovalRequest r) {

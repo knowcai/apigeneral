@@ -31,8 +31,14 @@
         <el-form-item v-if="form.id && form.role === 'SUPER_ADMIN'" :label="t('col.type')">
           <el-tag>{{ t('role.superAdmin') }}</el-tag>
         </el-form-item>
+        <el-form-item v-else-if="!form.id" :label="t('col.type')">
+          <el-select v-model="form.role" style="width: 100%">
+            <el-option :label="t('role.regularUser')" value="API_EDITOR" />
+            <el-option :label="t('role.viewer')" value="API_VIEWER" />
+          </el-select>
+        </el-form-item>
         <el-form-item v-else-if="form.id" :label="t('col.type')">
-          <el-tag type="info">{{ t('role.regularUser') }}</el-tag>
+          <el-tag type="info">{{ roleLabel(form.role) }}</el-tag>
         </el-form-item>
         <el-form-item :label="t('user.password')">
           <el-input v-model="form.password" type="password" show-password :placeholder="form.id ? t('user.passwordPlaceholderEdit') : t('user.passwordPlaceholderNew')" />
@@ -61,6 +67,7 @@ const form = reactive<any>({ username: '', displayName: '', role: 'API_EDITOR', 
 
 function roleLabel(role: UserRole) {
   if (role === 'SUPER_ADMIN') return t('role.superAdmin')
+  if (role === 'API_VIEWER') return t('role.viewer')
   return t('role.regularUser')
 }
 
@@ -83,12 +90,13 @@ async function save() {
   if (!form.id && (!form.password || form.password.length < 6)) {
     return ElMessage.warning(t('user.needPassword'))
   }
-  const payload = {
+  const payload: Record<string, unknown> = {
     username: form.username.trim(),
     displayName: form.displayName?.trim() || form.username.trim(),
     enabled: form.enabled,
     password: form.password || undefined
   }
+  if (!form.id) payload.role = form.role
   try {
     if (form.id) await http.put(`/admin/users/${form.id}`, payload)
     else await http.post('/admin/users', payload)

@@ -53,7 +53,14 @@ public class ApprovalApplyService {
     }
 
     @Transactional
-    public Optional<String> apply(ApprovalResourceType type, Long resourceId, ApprovalAction action, Long themeId, Object payload) {
+    public Optional<String> apply(ApprovalResourceType type, Long resourceId, ApprovalAction action, Long themeId,
+                                  Object payload) {
+        return apply(type, resourceId, action, themeId, payload, null, null);
+    }
+
+    @Transactional
+    public Optional<String> apply(ApprovalResourceType type, Long resourceId, ApprovalAction action, Long themeId,
+                                  Object payload, Long submitterId, Long approvalRequestId) {
         return switch (type) {
             case API_DEFINITION -> {
                 applyApiDefinition(action, themeId, payload, resourceId);
@@ -67,7 +74,7 @@ public class ApprovalApplyService {
                 applyDatasource(action, themeId, payload, resourceId);
                 yield Optional.empty();
             }
-            case THEME_API_KEY -> themeApiKeyService.apply(action, themeId, resourceId, payload);
+            case THEME_API_KEY -> themeApiKeyService.apply(action, themeId, resourceId, payload, submitterId, approvalRequestId);
             default -> throw new BusinessException("不支持的审批资源: " + type);
         };
     }

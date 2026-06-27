@@ -1,7 +1,7 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { auth } from '../stores/auth'
 
-const instance = axios.create({ baseURL: '' })
+const instance = axios.create({ baseURL: '', withCredentials: true })
 
 instance.interceptors.request.use((config) => {
   const token = auth.getToken()

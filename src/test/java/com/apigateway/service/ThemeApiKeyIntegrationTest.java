@@ -7,6 +7,7 @@ import com.apigateway.entity.*;
 import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.ApprovalRequestRepository;
 import com.apigateway.repository.ConsumerRepository;
+import com.apigateway.repository.ThemeApiKeyPickupRepository;
 import com.apigateway.support.GatewayTestFixtures;
 import com.apigateway.support.TestAuth;
 import com.apigateway.support.TestFixtures;
@@ -20,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,8 +32,6 @@ class ThemeApiKeyIntegrationTest {
     @Autowired
     private ThemeApiKeyService themeApiKeyService;
     @Autowired
-    private ConsumerService consumerService;
-    @Autowired
     private ApprovalService approvalService;
     @Autowired
     private TestFixtures fixtures;
@@ -43,6 +41,8 @@ class ThemeApiKeyIntegrationTest {
     private ConsumerRepository consumerRepository;
     @Autowired
     private ApprovalRequestRepository approvalRequestRepository;
+    @Autowired
+    private ThemeApiKeyPickupRepository pickupRepository;
 
     private SysUser admin1;
     private SysUser admin2;
@@ -61,27 +61,15 @@ class ThemeApiKeyIntegrationTest {
     }
 
     @Test
-    void superAdminCreateKeyDirect() {
+    void superAdminCannotCreateKey() {
         TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
         ThemeApiKeyRequest req = new ThemeApiKeyRequest();
         req.setName("direct-key");
 
-        var created = themeApiKeyService.createDirect(theme.getId(), req);
-        assertNotNull(created.getApiKey());
-        assertTrue(themeApiKeyService.authenticate(created.getApiKey()).isPresent());
-        assertEquals(theme.getId(), created.getConsumer().getThemeId());
-    }
-
-    @Test
-    void duplicateKeyRejected() {
-        gatewayFixtures.createThemeApiKey(theme.getId(), "first-key");
-        TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
-
-        ThemeApiKeyRequest req = new ThemeApiKeyRequest();
-        req.setName("second-key");
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> themeApiKeyService.createDirect(theme.getId(), req));
-        assertTrue(ex.getMessage().contains("已有 API Key"));
+                () -> themeApiKeyService.create(theme.getId(), req));
+        assertEquals(403, ex.getCode());
+        assertEquals(0, themeApiKeyService.countUsedSlots(theme.getId()));
     }
 
     @Test
@@ -93,11 +81,12 @@ class ThemeApiKeyIntegrationTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> themeApiKeyService.create(theme.getId(), req));
         assertEquals(202, ex.getCode());
-        assertTrue(consumerRepository.findByThemeId(theme.getId()).isEmpty());
+        assertTrue(consumerRepository.findAllByThemeIdOrderByCreatedAtAsc(theme.getId()).isEmpty());
+        assertEquals(1, themeApiKeyService.countUsedSlots(theme.getId()));
     }
 
     @Test
-    void approveCreateKeyStoresPickup() {
+    void approveCreateKeyStoresPickupForSubmitter() {
         TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
         ThemeApiKeyRequest req = new ThemeApiKeyRequest();
         req.setName("approved-key");
@@ -109,76 +98,44 @@ class ThemeApiKeyIntegrationTest {
 
         assertTrue(outcome.isThemeKeyPickupPending());
         assertNull(outcome.getApiKey());
-        assertTrue(consumerRepository.findByThemeId(theme.getId()).isPresent());
-        assertEquals(ApprovalStatus.APPROVED,
-                approvalRequestRepository.findAll().stream()
-                        .filter(r -> r.getResourceType() == ApprovalResourceType.THEME_API_KEY)
-                        .findFirst()
-                        .orElseThrow()
-                        .getStatus());
+        assertEquals(1, consumerRepository.countByThemeId(theme.getId()));
+        Long consumerId = consumerRepository.findAllByThemeIdOrderByCreatedAtAsc(theme.getId()).getFirst().getId();
+        assertTrue(pickupRepository.existsByConsumerId(consumerId));
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        var claimed = themeApiKeyService.claimPickup(theme.getId(), consumerId);
+        assertNotNull(claimed.getApiKey());
+        assertFalse(pickupRepository.existsByConsumerId(consumerId));
     }
 
     @Test
-    void claimPickupReturnsKeyOnce() {
+    void nonSubmitterCannotClaim() {
         TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
         ThemeApiKeyRequest req = new ThemeApiKeyRequest();
-        req.setName("claim-key");
+        req.setName("submitter-only");
         assertThrows(BusinessException.class, () -> themeApiKeyService.create(theme.getId(), req));
 
         TestAuth.login(admin2.getId(), admin2.getUsername(), UserRole.API_EDITOR);
         Long taskId = pendingTaskForAssignee(admin2.getId(), admin2.getUsername());
         approvalService.approveTask(taskId, true, "ok");
 
-        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
-        var claimed = themeApiKeyService.claimPickup(theme.getId());
-        assertNotNull(claimed.getApiKey());
-        assertTrue(themeApiKeyService.authenticate(claimed.getApiKey()).isPresent());
-
+        Long consumerId = consumerRepository.findAllByThemeIdOrderByCreatedAtAsc(theme.getId()).getFirst().getId();
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> themeApiKeyService.claimPickup(theme.getId()));
-        assertTrue(ex.getMessage().contains("没有待领取"));
+                () -> themeApiKeyService.claimPickup(theme.getId(), consumerId));
+        assertEquals(403, ex.getCode());
     }
 
     @Test
-    void canAccessThemeApisAfterKeyCreated() {
-        var ds = gatewayFixtures.createDatasource(theme.getId(), "key-access-ds");
-        var published = gatewayFixtures.publishApi(theme.getId(), "key-access-api", ds.getId());
-        var created = gatewayFixtures.createThemeApiKey(theme.getId(), "access-key");
-        Long consumerId = created.getConsumer().getId();
-
-        assertTrue(consumerService.canAccess(consumerId, published.definition().getId()));
-
-        SysUser otherAdmin = fixtures.createUser("key_other_admin", UserRole.API_EDITOR);
-        ThemeResponse otherTheme = fixtures.createThemeWithAdmins("Key 其他主题", List.of(otherAdmin.getId()));
-        var otherDs = gatewayFixtures.createDatasource(otherTheme.getId(), "key-other-ds");
-        var otherApi = gatewayFixtures.publishApi(otherTheme.getId(), "key-other-api", otherDs.getId());
-
-        assertFalse(consumerService.canAccess(consumerId, otherApi.definition().getId()));
-    }
-
-    @Test
-    void rotateKeyInvalidatesOldKey() {
-        var created = gatewayFixtures.createThemeApiKey(theme.getId(), "rotate-key");
-        String oldKey = created.getApiKey();
-        assertTrue(themeApiKeyService.authenticate(oldKey).isPresent());
-
+    void maxFiveKeysEnforced() {
         TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
-        var rotated = themeApiKeyService.rotateDirect(
-                consumerRepository.findByThemeId(theme.getId()).orElseThrow());
-        String newKey = rotated.getApiKey();
-
-        assertTrue(themeApiKeyService.authenticate(newKey).isPresent());
-        assertTrue(themeApiKeyService.authenticate(oldKey).isEmpty());
-    }
-
-    @Test
-    void themeAdminRotateGoesToApproval() {
-        gatewayFixtures.createThemeApiKey(theme.getId(), "rotate-approval-key");
-        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
-
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> themeApiKeyService.rotate(theme.getId()));
-        assertEquals(202, ex.getCode());
+        for (int i = 0; i < ThemeApiKeyService.MAX_KEYS_PER_THEME; i++) {
+            ThemeApiKeyRequest req = new ThemeApiKeyRequest();
+            req.setName("key-" + i);
+            themeApiKeyService.createDirect(theme.getId(), req);
+        }
+        ThemeApiKeyRequest req = new ThemeApiKeyRequest();
+        req.setName("overflow");
+        assertThrows(BusinessException.class, () -> themeApiKeyService.createDirect(theme.getId(), req));
     }
 
     private Long pendingTaskForAssignee(Long assigneeId, String username) {

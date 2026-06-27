@@ -28,7 +28,7 @@
           <el-table-column prop="username" :label="t('col.operator')" width="120" />
           <el-table-column :label="t('audit.keyAction')" width="120">
             <template #default="{ row }">
-              {{ row.action === 'CREATE' ? t('audit.keyCreate') : t('audit.keyRotate') }}
+              {{ row.action === 'CREATE' ? t('audit.keyCreate') : row.action === 'DELETE' ? t('audit.keyDelete') : t('audit.keyRotate') }}
             </template>
           </el-table-column>
           <el-table-column prop="resourceName" :label="t('col.resource')" min-width="180" />

@@ -22,7 +22,8 @@ public class ApiOpenApiExportService {
     private final ApiVersionRepository versionRepository;
 
     public Map<String, Object> exportPublishedByApiCode(String apiCode) {
-        ApiDefinition def = apiManagementService.getByCode(apiCode);
+        ApiDefinition def = apiManagementService.getDefinition(
+                apiManagementService.getByCode(apiCode).getId());
         ApiVersion version = versionRepository
                 .findFirstByApiIdAndStatusOrderByVersionNoDesc(def.getId(), PublishStatus.PUBLISHED)
                 .orElseThrow(() -> new BusinessException("API 暂无已发布版本: " + apiCode));

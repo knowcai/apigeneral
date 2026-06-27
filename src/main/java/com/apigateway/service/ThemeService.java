@@ -1,7 +1,15 @@
 package com.apigateway.service;
 
 import com.apigateway.dto.*;
-import com.apigateway.entity.*;
+import com.apigateway.entity.ApprovalAction;
+import com.apigateway.entity.ApprovalResourceType;
+import com.apigateway.entity.ApprovalStatus;
+import com.apigateway.entity.ApprovalTask;
+import com.apigateway.entity.SysUser;
+import com.apigateway.entity.Theme;
+import com.apigateway.entity.ThemeMembership;
+import com.apigateway.entity.ThemeMembershipRole;
+import com.apigateway.entity.UserRole;
 import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.*;
 import com.apigateway.security.AuthzService;
@@ -10,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,6 +34,7 @@ public class ThemeService {
     private final SysUserRepository userRepository;
     private final ConsumerRepository consumerRepository;
     private final ApprovalRequestRepository approvalRequestRepository;
+    private final ApprovalTaskRepository approvalTaskRepository;
     private final ThemeApiKeyPickupRepository pickupRepository;
     private final AuthzService authzService;
     private final AuditLogService auditLogService;
@@ -55,6 +65,21 @@ public class ThemeService {
         result.put("themeId", themeId);
         result.put("apiCount", apiDefinitionRepository.countByThemeId(themeId));
         return result;
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        authzService.requireSuperAdmin();
+        Theme theme = themeRepository.findById(id).orElseThrow(() -> new BusinessException("主题不存在"));
+        long apiCount = apiDefinitionRepository.countByThemeId(id);
+        if (apiCount > 0) {
+            throw new BusinessException("主题下仍有 " + apiCount + " 个 API，请先删除全部 API 后再删除主题");
+        }
+        consumerRepository.deleteByThemeId(id);
+        pickupRepository.deleteByThemeId(id);
+        membershipRepository.findByThemeId(id).forEach(membershipRepository::delete);
+        themeRepository.delete(theme);
+        auditLogService.log("DELETE", "THEME", String.valueOf(id), theme.getCode(), null);
     }
 
     @Transactional
@@ -198,6 +223,11 @@ public class ThemeService {
         if (authzService.isSuperAdmin()) {
             return true;
         }
+        return isThemeAdminMember(themeId, userId);
+    }
+
+    /** 是否为主题管理员成员（不含超级管理员特权）。 */
+    public boolean isThemeAdminMember(Long themeId, Long userId) {
         return membershipRepository.findByThemeIdAndUserId(themeId, userId)
                 .map(m -> m.getRole() == ThemeMembershipRole.THEME_ADMIN)
                 .orElse(false);
@@ -268,26 +298,49 @@ public class ThemeService {
     }
 
     private void saveThemeAdmins(Long themeId, List<ThemeMemberRequest> members) {
+        Set<Long> previousAdminIds = membershipRepository.findByThemeId(themeId).stream()
+                .filter(m -> m.getRole() == ThemeMembershipRole.THEME_ADMIN)
+                .map(ThemeMembership::getUserId)
+                .collect(Collectors.toSet());
         membershipRepository.findByThemeId(themeId).stream()
                 .filter(m -> m.getRole() == ThemeMembershipRole.THEME_ADMIN)
                 .forEach(membershipRepository::delete);
-        if (members == null) {
-            return;
-        }
-        for (ThemeMemberRequest m : members) {
-            if (m.getUserId() == null || m.getRole() != ThemeMembershipRole.THEME_ADMIN) {
-                continue;
-            }
-            membershipRepository.findByThemeIdAndUserId(themeId, m.getUserId()).ifPresent(existing -> {
-                if (existing.getRole() == ThemeMembershipRole.MEMBER) {
-                    membershipRepository.delete(existing);
+        Set<Long> newAdminIds = new HashSet<>();
+        if (members != null) {
+            for (ThemeMemberRequest m : members) {
+                if (m.getUserId() == null || m.getRole() != ThemeMembershipRole.THEME_ADMIN) {
+                    continue;
                 }
-            });
-            ThemeMembership tm = new ThemeMembership();
-            tm.setThemeId(themeId);
-            tm.setUserId(m.getUserId());
-            tm.setRole(ThemeMembershipRole.THEME_ADMIN);
-            membershipRepository.save(tm);
+                newAdminIds.add(m.getUserId());
+                membershipRepository.findByThemeIdAndUserId(themeId, m.getUserId()).ifPresent(existing -> {
+                    if (existing.getRole() == ThemeMembershipRole.MEMBER) {
+                        membershipRepository.delete(existing);
+                    }
+                });
+                ThemeMembership tm = new ThemeMembership();
+                tm.setThemeId(themeId);
+                tm.setUserId(m.getUserId());
+                tm.setRole(ThemeMembershipRole.THEME_ADMIN);
+                membershipRepository.save(tm);
+            }
+        }
+        for (Long removedId : previousAdminIds) {
+            if (!newAdminIds.contains(removedId)) {
+                revokePendingTasksForRemovedThemeAdmin(themeId, removedId);
+            }
+        }
+    }
+
+    private void revokePendingTasksForRemovedThemeAdmin(Long themeId, Long userId) {
+        for (var request : approvalRequestRepository.findByThemeIdAndStatusOrderByCreatedAtDesc(
+                themeId, ApprovalStatus.PENDING)) {
+            for (ApprovalTask task : approvalTaskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(
+                    request.getId())) {
+                if (task.getAssigneeId().equals(userId) && task.getStatus() == ApprovalStatus.PENDING) {
+                    task.setStatus(ApprovalStatus.CANCELLED);
+                    approvalTaskRepository.save(task);
+                }
+            }
         }
     }
 
@@ -317,24 +370,13 @@ public class ThemeService {
     }
 
     private void attachApiKeySummary(ThemeResponse.ThemeResponseBuilder builder, Long themeId) {
-        var pending = approvalRequestRepository.findByThemeIdAndResourceTypeAndStatus(
-                themeId, ApprovalResourceType.THEME_API_KEY, ApprovalStatus.PENDING);
-        if (!pending.isEmpty()) {
-            ApprovalRequest request = pending.getFirst();
-            builder.apiKeyPhase("PENDING")
-                    .apiKeyPendingRequestId(request.getId())
-                    .apiKeyPendingAction(request.getAction().name());
-            consumerRepository.findByThemeId(themeId).ifPresent(c -> {
-                builder.apiKeyPrefix(c.getKeyPrefix()).apiKeyStatus(c.getStatus());
-            });
-            return;
-        }
-        consumerRepository.findByThemeId(themeId).ifPresentOrElse(c -> {
-            builder.apiKeyPrefix(c.getKeyPrefix())
-                    .apiKeyStatus(c.getStatus())
-                    .apiKeyPhase("DISABLED".equals(c.getStatus()) ? "DISABLED" : "ACTIVE");
-        }, () -> builder.apiKeyPhase("NONE"));
-        builder.apiKeyPickupPending(pickupRepository.existsByThemeId(themeId));
+        long pendingCreate = approvalRequestRepository.countByThemeIdAndResourceTypeAndStatusAndAction(
+                themeId, ApprovalResourceType.THEME_API_KEY, ApprovalStatus.PENDING, ApprovalAction.CREATE);
+        int used = (int) (consumerRepository.countByThemeId(themeId) + pendingCreate);
+        builder.apiKeyUsedSlots(used)
+                .apiKeyMaxSlots(ThemeApiKeyService.MAX_KEYS_PER_THEME)
+                .apiKeyPhase(used > 0 ? "ACTIVE" : "NONE")
+                .apiCount(apiDefinitionRepository.countByThemeId(themeId));
     }
 
     private ThemeMembershipRole resolveMyRole(Long themeId) {

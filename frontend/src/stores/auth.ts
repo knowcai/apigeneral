@@ -10,16 +10,21 @@ export interface UserInfo {
   enabled?: boolean
 }
 
+export interface ThemeBrief {
+  id: number
+  myRole?: 'THEME_ADMIN' | 'MEMBER' | string
+}
+
 const TOKEN_KEY = 'gw_token'
 
 const state = reactive({
-  token: localStorage.getItem(TOKEN_KEY) || '',
+  token: sessionStorage.getItem(TOKEN_KEY) || '',
   user: null as UserInfo | null
 })
 
 export const auth = {
   state,
-  isLoggedIn: computed(() => !!state.token),
+  isLoggedIn: computed(() => !!state.user || !!state.token),
   isSuperAdmin: computed(() => state.user?.role === 'SUPER_ADMIN'),
   isApiEditor: computed(() => state.user?.role === 'API_EDITOR'),
   isApiViewer: computed(() => state.user?.role === 'API_VIEWER'),
@@ -28,25 +33,55 @@ export const auth = {
   canManageUsers: computed(() => state.user?.role === 'SUPER_ADMIN'),
   canManageThemes: computed(() => state.user?.role === 'SUPER_ADMIN'),
   canCreateApi: computed(() => ['SUPER_ADMIN', 'API_EDITOR'].includes(state.user?.role || '')),
-  canEditApi(def: { themeId?: number }, themeIds: number[] = []) {
+  canViewAudit: computed(() => state.user?.role === 'SUPER_ADMIN'),
+  canViewPolicy: computed(() => state.user?.role === 'SUPER_ADMIN'),
+  canApprove: computed(() => ['SUPER_ADMIN', 'API_EDITOR'].includes(state.user?.role || '')),
+  canWriteInTheme(themeId: number, themes: ThemeBrief[]) {
     const u = state.user
     if (!u) return false
     if (u.role === 'SUPER_ADMIN') return true
     if (u.role === 'API_VIEWER') return false
-    if (def.themeId != null && themeIds.length > 0) {
-      return themeIds.includes(def.themeId)
+    return themes.some(t => t.id === themeId)
+  },
+  canAdminTheme(themeId: number, themes: ThemeBrief[]) {
+    const u = state.user
+    if (!u) return false
+    if (u.role === 'SUPER_ADMIN') return true
+    if (u.role === 'API_VIEWER') return false
+    return themes.some(t => t.id === themeId && t.myRole === 'THEME_ADMIN')
+  },
+  canEditApi(def: { themeId?: number }, themes: ThemeBrief[] = []) {
+    if (def.themeId != null) {
+      return auth.canWriteInTheme(def.themeId, themes)
     }
-    return u.role === 'API_EDITOR'
+    return auth.canCreateApi.value
+  },
+  canDeleteApi(def: { themeId?: number }, themes: ThemeBrief[] = []) {
+    if (def.themeId != null) {
+      return auth.canAdminTheme(def.themeId, themes)
+    }
+    return auth.isSuperAdmin.value
+  },
+  canDeleteDatasource(row: { themeId?: number }, themes: ThemeBrief[] = []) {
+    return auth.canAdminTheme(row.themeId ?? 0, themes)
   },
   setSession(token: string, user: UserInfo) {
     state.token = token
     state.user = user
-    localStorage.setItem(TOKEN_KEY, token)
+    if (token) {
+      sessionStorage.setItem(TOKEN_KEY, token)
+    }
   },
-  clear() {
+  async clear() {
     state.token = ''
     state.user = null
-    localStorage.removeItem(TOKEN_KEY)
+    sessionStorage.removeItem(TOKEN_KEY)
+    try {
+      const { default: http } = await import('../api/http')
+      await http.post('/admin/auth/logout')
+    } catch {
+      // ignore
+    }
   },
   getToken() {
     return state.token

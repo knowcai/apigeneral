@@ -21,6 +21,7 @@ public class SecurityConfig {
 
     private final @Lazy JwtAuthFilter jwtAuthFilter;
     private final @Lazy ApiKeyAuthFilter apiKeyAuthFilter;
+    private final GatewaySecurityProperties securityProperties;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -31,14 +32,26 @@ public class SecurityConfig {
                     response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"code\":401,\"message\":\"未登录\",\"data\":null}");
                 }))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/admin/auth/login").permitAll()
-                        .requestMatchers("/api/data/**").permitAll()
-                        .requestMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
-                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/admin/**").authenticated()
-                        .anyRequest().permitAll())
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers("/admin/auth/login").permitAll();
+                    auth.requestMatchers("/api/data/**").permitAll();
+                    if (securityProperties.isActuatorPublic()) {
+                        auth.requestMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus")
+                                .permitAll();
+                    } else {
+                        auth.requestMatchers("/actuator/**").authenticated();
+                    }
+                    if (securityProperties.isSwaggerPublic()) {
+                        auth.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                                .permitAll();
+                    } else {
+                        auth.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                                .authenticated();
+                    }
+                    auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll();
+                    auth.requestMatchers("/admin/**").authenticated();
+                    auth.anyRequest().permitAll();
+                })
                 .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

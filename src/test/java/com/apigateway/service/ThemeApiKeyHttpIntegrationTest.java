@@ -20,8 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 import static com.apigateway.support.TestHttpAuth.bearer;
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -50,53 +49,57 @@ class ThemeApiKeyHttpIntegrationTest {
     void setUp() {
         themeAdmin = fixtures.createUser("http_key_admin", UserRole.API_EDITOR);
         themeAdmin2 = fixtures.createUser("http_key_admin2", UserRole.API_EDITOR);
-        theme = fixtures.createThemeWithAdmins("HTTP Key 测试主题", List.of(themeAdmin.getId(), themeAdmin2.getId()));
+        theme = fixtures.createThemeWithAdmins("HTTP Key 测试主题",
+                List.of(themeAdmin.getId(), themeAdmin2.getId()));
     }
 
     @Test
-    void superAdminCreateApiKeyViaHttp() throws Exception {
+    void superAdminCreateApiKeyViaHttp_forbidden() throws Exception {
         String token = TestHttpAuth.login(mockMvc, "testadmin", "testadmin123");
-        mockMvc.perform(post("/admin/themes/" + theme.getId() + "/api-key")
+        mockMvc.perform(post("/admin/themes/" + theme.getId() + "/api-keys")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"http-direct-key\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.apiKey").isNotEmpty())
-                .andExpect(jsonPath("$.data.consumer.themeId").value(theme.getId().intValue()));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
     }
 
     @Test
     void themeAdminCreateApiKeyViaHttp_returns202() throws Exception {
         String token = TestHttpAuth.login(mockMvc, themeAdmin.getUsername(), "password123");
-        mockMvc.perform(post("/admin/themes/" + theme.getId() + "/api-key")
+        mockMvc.perform(post("/admin/themes/" + theme.getId() + "/api-keys")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"http-approval-key\"}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.code").value(202));
-        assertTrue(consumerRepository.findByThemeId(theme.getId()).isEmpty());
+        assertEquals(0, consumerRepository.countByThemeId(theme.getId()));
     }
 
     @Test
-    void getApiKeyViaHttp_afterCreate() throws Exception {
-        gatewayFixtures.createThemeApiKey(theme.getId(), "http-get-key");
+    void listApiKeysViaHttp_superAdminReadOnly() throws Exception {
+        gatewayFixtures.createThemeApiKey(theme.getId(), "http-list-key");
         String token = TestHttpAuth.login(mockMvc, "testadmin", "testadmin123");
-        mockMvc.perform(get("/admin/themes/" + theme.getId() + "/api-key")
+        mockMvc.perform(get("/admin/themes/" + theme.getId() + "/api-keys")
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.name").value("http-get-key"))
-                .andExpect(jsonPath("$.data.keyPrefix").isNotEmpty());
+                .andExpect(jsonPath("$.data.keys[0].name").value("http-list-key"))
+                .andExpect(jsonPath("$.data.keys[0].keyPrefix").isNotEmpty())
+                .andExpect(jsonPath("$.data.usedSlots").value(1))
+                .andExpect(jsonPath("$.data.maxSlots").value(5))
+                .andExpect(jsonPath("$.data.canManage").value(false));
     }
 
     @Test
-    void duplicateCreateViaHttp_returns400() throws Exception {
-        gatewayFixtures.createThemeApiKey(theme.getId(), "dup-key");
-        String token = TestHttpAuth.login(mockMvc, "testadmin", "testadmin123");
-        mockMvc.perform(post("/admin/themes/" + theme.getId() + "/api-key")
+    void maxKeysViaHttp_returns400() throws Exception {
+        for (int i = 0; i < ThemeApiKeyService.MAX_KEYS_PER_THEME; i++) {
+            gatewayFixtures.createThemeApiKey(theme.getId(), "max-key-" + i);
+        }
+        String token = TestHttpAuth.login(mockMvc, themeAdmin.getUsername(), "password123");
+        mockMvc.perform(post("/admin/themes/" + theme.getId() + "/api-keys")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"dup-key-2\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("已有 API Key")));
+                        .content("{\"name\":\"overflow\"}"))
+                .andExpect(status().isBadRequest());
     }
 }

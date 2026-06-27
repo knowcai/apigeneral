@@ -19,7 +19,8 @@ public class GlobalConnectionBudget {
     private final long acquireTimeoutMs;
 
     public GlobalConnectionBudget(GatewayPoolProperties properties, MeterRegistry meterRegistry) {
-        int max = Math.max(1, properties.getGlobalMaxConnections());
+        int replicas = Math.max(1, properties.getReplicaCount());
+        int max = Math.max(1, properties.getGlobalMaxConnections() / replicas);
         this.maxConnections = max;
         this.semaphore = new Semaphore(max, true);
         this.acquireTimeoutMs = properties.getAcquireTimeoutMs();

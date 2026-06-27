@@ -13,4 +13,8 @@ public interface ApprovalTaskRepository extends JpaRepository<ApprovalTask, Long
     List<ApprovalTask> findByAssigneeIdAndStatusOrderByIdDesc(Long assigneeId, ApprovalStatus status);
 
     List<ApprovalTask> findByStatusOrderByIdDesc(ApprovalStatus status);
+
+    long countByAssigneeIdAndStatus(Long assigneeId, ApprovalStatus status);
+
+    long countByStatus(ApprovalStatus status);
 }

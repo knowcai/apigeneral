@@ -39,7 +39,7 @@ public class ApprovalDiffService {
             Map<String, Object> after = loadAfter(type, action, payload);
             return ApprovalDiffResult.ok(diffMaps(before, after));
         } catch (BusinessException e) {
-            throw e;
+            return ApprovalDiffResult.parseError(e.getMessage());
         } catch (Exception e) {
             return ApprovalDiffResult.parseError("无法解析变更对比: " + e.getMessage());
         }
@@ -71,9 +71,12 @@ public class ApprovalDiffService {
             }
             case THEME_API_KEY -> {
                 if (resourceId == null) yield Map.of();
-                Consumer consumer = consumerRepository.findById(resourceId)
-                        .orElseThrow(() -> new BusinessException("API Key 不存在"));
-                yield themeApiKeyFields(consumer);
+                yield consumerRepository.findById(resourceId)
+                        .map(this::themeApiKeyFields)
+                        .orElse(Map.of(
+                                "name", "(已删除)",
+                                "keyPrefix", "—",
+                                "status", "—"));
             }
         };
     }

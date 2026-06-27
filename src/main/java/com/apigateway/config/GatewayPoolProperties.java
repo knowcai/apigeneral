@@ -16,4 +16,9 @@ public class GatewayPoolProperties {
 
     /** 全局连接预算耗尽时的等待超时（毫秒），超时返回 503。 */
     private long acquireTimeoutMs = 5000;
+
+    /**
+     * 网关实例数（水平扩展时配置，用于将 global-max-connections 均分到单实例）。
+     */
+    private int replicaCount = 1;
 }

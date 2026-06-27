@@ -1,6 +1,9 @@
 package com.apigateway.service;
 
 import com.apigateway.dto.ApiDefinitionRequest;
+import com.apigateway.dto.ThemeApiKeyRequest;
+import com.apigateway.dto.ThemeMemberRequest;
+import com.apigateway.dto.ThemeRequest;
 import com.apigateway.dto.ThemeResponse;
 import com.apigateway.entity.*;
 import com.apigateway.exception.BusinessException;
@@ -42,6 +45,12 @@ class ApprovalFlowIntegrationTest {
     private ApiManagementService apiManagementService;
     @Autowired
     private GatewayTestFixtures gatewayFixtures;
+
+    @Autowired
+    private ThemeApiKeyService themeApiKeyService;
+
+    @Autowired
+    private ThemeService themeService;
 
     private SysUser admin1;
     private SysUser admin2;
@@ -239,6 +248,137 @@ class ApprovalFlowIntegrationTest {
                 () -> approvalService.approveTask(task2, true, "second"));
         assertTrue(ex.getMessage().contains("已处理") || ex.getMessage().contains("已结束"));
         assertEquals(1, apiDefinitionRepository.findByApiCode("dup-approve-api").stream().count());
+    }
+
+    @Test
+    void listHistoryIncludesApprovedThemeKeyDeleteAfterConsumerRemoved() {
+        TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
+        ThemeApiKeyRequest keyReq = new ThemeApiKeyRequest();
+        keyReq.setName("history-del-key");
+        var created = themeApiKeyService.createDirect(theme.getId(), keyReq);
+        Long keyId = created.getConsumer().getId();
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        assertThrows(BusinessException.class, () -> themeApiKeyService.deleteKey(theme.getId(), keyId));
+
+        TestAuth.login(admin2.getId(), admin2.getUsername(), UserRole.API_EDITOR);
+        approvalService.approveTask(pendingTaskForAssignee(admin2.getId(), admin2.getUsername()), true, "ok");
+
+        TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
+        List<Map<String, Object>> history = approvalService.listHistory(50);
+        assertFalse(history.isEmpty());
+        assertTrue(history.stream().anyMatch(h ->
+                "THEME_API_KEY".equals(String.valueOf(h.get("resourceType")))
+                        && "DELETE".equals(String.valueOf(h.get("action")))
+                        && "APPROVED".equals(String.valueOf(h.get("status")))
+                        && admin2.getDisplayName().equals(h.get("approverName"))));
+    }
+
+    @Test
+    void superAdminMyTasksDedupedByRequestWhenMultipleAssignees() {
+        ThemeResponse loneTheme = fixtures.createThemeWithAdmins("去重测试主题", List.of(admin1.getId()));
+        SysUser lateAdmin = fixtures.createUser("dedupe_admin", UserRole.API_EDITOR);
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                loneTheme.getId(), "去重测试", apiPayload("dedupe-api", loneTheme.getId()));
+
+        TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
+        ThemeMemberRequest m = new ThemeMemberRequest();
+        m.setUserId(lateAdmin.getId());
+        m.setRole(ThemeMembershipRole.THEME_ADMIN);
+        ThemeRequest update = new ThemeRequest();
+        update.setName(loneTheme.getName());
+        update.setEnabled(true);
+        update.setMembers(List.of(themeAdminMember(admin1.getId()), m));
+        themeService.update(loneTheme.getId(), update);
+
+        SysUser superAdmin = fixtures.requireSuperAdmin();
+        TestAuth.login(superAdmin.getId(), superAdmin.getUsername(), UserRole.SUPER_ADMIN);
+        assertTrue(approvalTaskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(submitted.getId()).stream()
+                        .filter(t -> t.getStatus() == ApprovalStatus.PENDING)
+                        .count() >= 2,
+                "same request should have tasks for super admin and newly added theme admin");
+
+        List<Map<String, Object>> tasks = approvalService.listMyPendingTasks();
+        long forRequest = tasks.stream()
+                .filter(t -> submitted.getId().equals(((Number) t.get("requestId")).longValue()))
+                .count();
+        assertEquals(1, forRequest);
+        assertEquals(1, approvalService.countMyPendingTasks());
+    }
+
+    @Test
+    void removedThemeAdminNoLongerSeesPendingTasks() {
+        ThemeResponse loneTheme = fixtures.createThemeWithAdmins("撤职测试主题", List.of(admin1.getId(), admin2.getId()));
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                loneTheme.getId(), "撤职后不可审", apiPayload("revoke-admin-api", loneTheme.getId()));
+
+        TestAuth.login(admin2.getId(), admin2.getUsername(), UserRole.API_EDITOR);
+        assertEquals(1, approvalService.countMyPendingTasks());
+
+        TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
+        ThemeRequest update = new ThemeRequest();
+        update.setName(loneTheme.getName());
+        update.setEnabled(true);
+        update.setMembers(List.of(themeAdminMember(admin1.getId())));
+        themeService.update(loneTheme.getId(), update);
+
+        TestAuth.login(admin2.getId(), admin2.getUsername(), UserRole.API_EDITOR);
+        assertEquals(0, approvalService.countMyPendingTasks());
+        assertTrue(approvalService.listMyPendingTasks().isEmpty());
+    }
+
+    @Test
+    void newlyAddedThemeAdminCanApprovePendingRequest() {
+        ThemeResponse loneTheme = fixtures.createThemeWithAdmins("后加管理员主题", List.of(admin1.getId()));
+        SysUser lateAdmin = fixtures.createUser("late_admin", UserRole.API_EDITOR);
+
+        TestAuth.login(admin1.getId(), admin1.getUsername(), UserRole.API_EDITOR);
+        ApprovalRequest submitted = approvalService.submit(
+                ApprovalResourceType.API_DEFINITION, null, ApprovalAction.CREATE,
+                loneTheme.getId(), "后加管理员审批", apiPayload("late-admin-api", loneTheme.getId()));
+        assertEquals(ApprovalStatus.PENDING, submitted.getStatus());
+        assertFalse(approvalTaskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(submitted.getId()).stream()
+                .anyMatch(t -> t.getAssigneeId().equals(lateAdmin.getId())));
+
+        TestAuth.login(fixtures.requireSuperAdmin().getId(), "testadmin", UserRole.SUPER_ADMIN);
+        ThemeMemberRequest m = new ThemeMemberRequest();
+        m.setUserId(lateAdmin.getId());
+        m.setRole(ThemeMembershipRole.THEME_ADMIN);
+        ThemeRequest update = new ThemeRequest();
+        update.setName(loneTheme.getName());
+        update.setEnabled(true);
+        update.setMembers(List.of(
+                themeAdminMember(admin1.getId()),
+                m));
+        themeService.update(loneTheme.getId(), update);
+
+        TestAuth.login(lateAdmin.getId(), lateAdmin.getUsername(), UserRole.API_EDITOR);
+        List<Map<String, Object>> tasks = approvalService.listMyPendingTasks();
+        assertTrue(tasks.stream().anyMatch(t ->
+                submitted.getId().equals(((Number) t.get("requestId")).longValue())));
+        Long taskId = tasks.stream()
+                .filter(t -> submitted.getId().equals(((Number) t.get("requestId")).longValue()))
+                .map(t -> ((Number) t.get("taskId")).longValue())
+                .findFirst()
+                .orElseThrow();
+        approvalService.approveTask(taskId, true, "后设管理员通过");
+
+        assertEquals(ApprovalStatus.APPROVED,
+                approvalRequestRepository.findById(submitted.getId()).orElseThrow().getStatus());
+        assertTrue(apiDefinitionRepository.findByApiCode("late-admin-api").isPresent());
+    }
+
+    private ThemeMemberRequest themeAdminMember(Long userId) {
+        ThemeMemberRequest m = new ThemeMemberRequest();
+        m.setUserId(userId);
+        m.setRole(ThemeMembershipRole.THEME_ADMIN);
+        return m;
     }
 
     private ApiDefinitionRequest apiPayload(String code, Long themeId) {

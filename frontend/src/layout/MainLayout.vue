@@ -15,10 +15,12 @@
           <el-icon><Document /></el-icon>
           <span>{{ t('nav.apis') }}</span>
         </el-menu-item>
-        <el-menu-item index="/approvals" class="approvals-item">
+        <el-menu-item v-if="auth.canApprove.value" index="/approvals" class="approvals-item">
           <el-icon><CircleCheck /></el-icon>
-          <span>{{ t('nav.approvals') }}</span>
-          <el-badge v-if="pendingCount > 0" :value="pendingCount" class="nav-badge" />
+          <span class="approvals-label">
+            <span class="approvals-text">{{ t('nav.approvals') }}</span>
+            <el-badge v-if="pendingCount > 0" :value="pendingCount" class="nav-badge" />
+          </span>
         </el-menu-item>
         <el-menu-item index="/dashboard">
           <el-icon><DataAnalysis /></el-icon>
@@ -28,11 +30,11 @@
           <el-icon><DataLine /></el-icon>
           <span>{{ t('nav.logs') }}</span>
         </el-menu-item>
-        <el-menu-item index="/policy">
+        <el-menu-item v-if="auth.canViewPolicy.value" index="/policy">
           <el-icon><Setting /></el-icon>
           <span>{{ t('nav.policy') }}</span>
         </el-menu-item>
-        <el-menu-item index="/audit">
+        <el-menu-item v-if="auth.canViewAudit.value" index="/audit">
           <el-icon><List /></el-icon>
           <span>{{ t('nav.audit') }}</span>
         </el-menu-item>
@@ -58,11 +60,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { auth } from '../stores/auth'
 import { setLocale } from '../locales'
+import { registerApprovalPendingRefresh } from '../utils/approvalPending'
 import http from '../api/http'
 
 const route = useRoute()
@@ -71,6 +74,7 @@ const { t, locale: i18nLocale } = useI18n()
 const locale = ref(i18nLocale.value as string)
 const pendingCount = ref(0)
 let pendingTimer: ReturnType<typeof setInterval> | null = null
+let unregisterPendingRefresh: (() => void) | null = null
 
 const roleLabel = computed(() => {
   const r = auth.state.user?.role
@@ -100,10 +104,16 @@ function logout() {
 onMounted(() => {
   refreshPendingCount()
   pendingTimer = setInterval(refreshPendingCount, 30000)
+  unregisterPendingRefresh = registerApprovalPendingRefresh(refreshPendingCount)
+})
+
+watch(() => route.path, () => {
+  refreshPendingCount()
 })
 
 onUnmounted(() => {
   if (pendingTimer) clearInterval(pendingTimer)
+  unregisterPendingRefresh?.()
 })
 </script>
 
@@ -149,15 +159,27 @@ onUnmounted(() => {
 .logout { color: #a3a3a3 !important; padding: 0; margin-top: 4px; }
 
 .approvals-item :deep(.el-menu-item__content) {
-  position: relative;
-  width: 100%;
+  align-items: center;
+}
+
+.approvals-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.approvals-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-badge {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 :deep(.el-menu-item) {

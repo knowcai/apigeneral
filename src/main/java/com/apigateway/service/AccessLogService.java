@@ -1,6 +1,7 @@
 package com.apigateway.service;
 
 import com.apigateway.dto.AccessLogQuery;
+import com.apigateway.dto.AccessLogView;
 import com.apigateway.entity.ApiAccessLog;
 import com.apigateway.repository.ApiAccessLogRepository;
 import com.apigateway.security.AuthzService;
@@ -17,8 +18,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -27,6 +30,8 @@ public class AccessLogService {
 
     private static final int EXPORT_MAX_ROWS = 10_000;
     private static final DateTimeFormatter CSV_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Set<String> SENSITIVE_PARAM_KEYS = Set.of(
+            "password", "token", "secret", "apikey", "api_key", "authorization");
 
     private final ApiAccessLogRepository repository;
     private final ObjectMapper objectMapper;
@@ -55,16 +60,16 @@ public class AccessLogService {
         repository.save(log);
     }
 
-    public Page<ApiAccessLog> search(AccessLogQuery query) {
+    public Page<AccessLogView> search(AccessLogQuery query) {
         authzService.requireAuthenticated();
         Pageable sorted = PageRequest.of(
                 Math.max(query.getPage(), 0),
                 Math.min(Math.max(query.getSize(), 1), 200),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        return repository.findAll(buildSpec(query), sorted);
+        return repository.findAll(buildSpec(query), sorted).map(this::toView);
     }
 
-    public Page<ApiAccessLog> list(String apiCode, Pageable pageable) {
+    public Page<AccessLogView> list(String apiCode, Pageable pageable) {
         AccessLogQuery query = new AccessLogQuery();
         query.setApiCode(apiCode);
         query.setPage(pageable.getPageNumber());
@@ -101,6 +106,51 @@ public class AccessLogService {
         }
     }
 
+    private AccessLogView toView(ApiAccessLog row) {
+        return AccessLogView.builder()
+                .id(row.getId())
+                .requestId(row.getRequestId())
+                .apiCode(row.getApiCode())
+                .apiVersion(row.getApiVersion())
+                .consumerId(row.getConsumerId())
+                .consumerName(row.getConsumerName())
+                .clientIp(row.getClientIp())
+                .requestParams(redactParams(row.getRequestParams()))
+                .responseMode(row.getResponseMode())
+                .responseRows(row.getResponseRows())
+                .responseBytes(row.getResponseBytes())
+                .durationMs(row.getDurationMs())
+                .status(row.getStatus())
+                .errorMessage(row.getErrorMessage())
+                .authMode(row.getAuthMode())
+                .createdAt(row.getCreatedAt())
+                .build();
+    }
+
+    static Map<String, Object> redactParams(Map<String, Object> params) {
+        if (params == null || params.isEmpty()) {
+            return params;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> e : params.entrySet()) {
+            String key = e.getKey();
+            if (key != null && isSensitiveKey(key)) {
+                out.put(key, "***");
+            } else {
+                out.put(key, e.getValue());
+            }
+        }
+        return out;
+    }
+
+    private static boolean isSensitiveKey(String key) {
+        String lower = key.toLowerCase();
+        if (SENSITIVE_PARAM_KEYS.contains(lower)) {
+            return true;
+        }
+        return lower.contains("password") || lower.contains("secret") || lower.contains("token");
+    }
+
     private Specification<ApiAccessLog> buildSpec(AccessLogQuery query) {
         ObservabilityScopeService.Scope scope = observabilityScopeService.currentScope();
         return (root, cq, cb) -> {
@@ -129,7 +179,7 @@ public class AccessLogService {
             if (query.getTo() != null) {
                 preds.add(cb.lessThanOrEqualTo(root.get("createdAt"), query.getTo()));
             }
-            return cb.and(preds.toArray(new Predicate[0]));
+            return cb.and(preds.toArray(Predicate[]::new));
         };
     }
 
@@ -137,10 +187,9 @@ public class AccessLogService {
         if (value == null) {
             return "";
         }
-        String escaped = value.replace("\"", "\"\"");
-        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
-            return "\"" + escaped + "\"";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
         }
-        return escaped;
+        return value;
     }
 }
