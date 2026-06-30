@@ -1,6 +1,7 @@
 package com.apigateway.config;
 
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -11,6 +12,7 @@ import java.io.IOException;
 
 @Configuration
 @Profile("test")
+@ConditionalOnProperty(name = "test.use-embedded-postgres", havingValue = "true", matchIfMissing = true)
 public class TestPostgresConfig {
 
     private static final Object LOCK = new Object();
