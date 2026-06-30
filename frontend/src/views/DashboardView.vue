@@ -169,6 +169,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import http from '../api/http'
 
 const { t } = useI18n()
@@ -231,19 +232,25 @@ function applyRuntime(data: any) {
   datasourcePools.value = data.datasourcePools ?? []
 }
 
-async function loadRuntime() {
-  const data = await http.get('/admin/monitoring/runtime')
-  applyRuntime(data)
-}
-
 async function load() {
   loading.value = true
   try {
     const data = await http.get('/admin/monitoring/dashboard', { params: { hours: hours.value } })
     stats.value = data
     applyRuntime(data)
+  } catch (e: any) {
+    ElMessage.error(e.message)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadRuntime() {
+  try {
+    const data = await http.get('/admin/monitoring/runtime')
+    applyRuntime(data)
+  } catch {
+    // runtime refresh is best-effort
   }
 }
 

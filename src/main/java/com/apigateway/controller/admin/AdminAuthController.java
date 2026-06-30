@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import com.apigateway.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,13 +27,14 @@ public class AdminAuthController {
     private final UserService userService;
     private final JwtService jwtService;
     private final GatewaySecurityProperties securityProperties;
+    private final ClientIpResolver clientIpResolver;
 
     @Operation(summary = "登录", description = "返回 JWT token，并设置 HttpOnly Cookie")
     @PostMapping("/login")
     public ApiResponse<Map<String, Object>> login(@Valid @RequestBody LoginRequest req,
                                                   HttpServletRequest request,
                                                   HttpServletResponse response) {
-        Map<String, Object> result = userService.login(req, resolveClientIp(request));
+        Map<String, Object> result = userService.login(req, clientIpResolver.resolve(request));
         String token = (String) result.get("token");
         if (token != null) {
             attachJwtCookie(response, token);
@@ -57,7 +59,7 @@ public class AdminAuthController {
         cookie.setPath("/");
         cookie.setMaxAge(jwtService.expirationSeconds());
         cookie.setSecure(securityProperties.isJwtCookieSecure());
-        cookie.setAttribute("SameSite", "Lax");
+        cookie.setAttribute("SameSite", "Strict");
         response.addCookie(cookie);
     }
 
@@ -68,9 +70,5 @@ public class AdminAuthController {
         cookie.setMaxAge(0);
         cookie.setSecure(securityProperties.isJwtCookieSecure());
         response.addCookie(cookie);
-    }
-
-    private String resolveClientIp(HttpServletRequest request) {
-        return request.getRemoteAddr();
     }
 }

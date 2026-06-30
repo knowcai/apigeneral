@@ -50,7 +50,7 @@ public class AccessLogService {
         log.setConsumerId(consumerId);
         log.setConsumerName(consumerName);
         log.setAuthMode(authMode);
-        log.setRequestParams(params);
+        log.setRequestParams(redactParams(params));
         log.setResponseMode(mode);
         log.setResponseRows(rows);
         log.setResponseBytes(bytes);

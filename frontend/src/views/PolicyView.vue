@@ -86,9 +86,13 @@ const form = reactive({
 })
 
 async function load() {
-  const data = await http.get<typeof form>('/admin/gateway-policy')
-  Object.assign(form, data)
-  loaded.value = true
+  try {
+    const data = await http.get<typeof form>('/admin/gateway-policy')
+    Object.assign(form, data)
+    loaded.value = true
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 async function save() {

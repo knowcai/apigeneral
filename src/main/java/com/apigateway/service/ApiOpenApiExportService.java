@@ -11,12 +11,13 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.apigateway.util.SqlParamPatterns;
 
 @Service
 @RequiredArgsConstructor
 public class ApiOpenApiExportService {
 
-    private static final Pattern NAMED_PARAM = Pattern.compile(":([a-zA-Z_][a-zA-Z0-9_]*)");
+    private static final Pattern NAMED_PARAM = SqlParamPatterns.NAMED_PARAM;
 
     private final ApiManagementService apiManagementService;
     private final ApiVersionRepository versionRepository;

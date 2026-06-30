@@ -1,6 +1,5 @@
 package com.apigateway.service;
 
-import com.apigateway.config.GatewaySecurityProperties;
 import com.apigateway.dto.QueryResult;
 import com.apigateway.entity.ApiDefinition;
 import com.apigateway.entity.ApiVersion;
@@ -9,6 +8,8 @@ import com.apigateway.metrics.GatewayMetrics;
 import com.apigateway.exception.BusinessException;
 import com.apigateway.repository.DatasourceRepository;
 import com.apigateway.security.ApiConsumerContext;
+import com.apigateway.util.ResponseConfigHelper;
+import com.apigateway.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,7 +29,7 @@ public class DynamicApiService {
     private final ConsumerService consumerService;
     private final GatewayMetrics gatewayMetrics;
     private final ThemeService themeService;
-    private final GatewaySecurityProperties securityProperties;
+    private final ClientIpResolver clientIpResolver;
 
     public QueryResult invoke(String theme, String apiCode, Integer versionNo, Map<String, Object> params,
                               Integer page, Integer pageSize, HttpServletRequest request) {
@@ -43,7 +44,7 @@ public class DynamicApiService {
     private QueryResult invokeInternal(String theme, String apiCode, Integer versionNo, Map<String, Object> params,
                               Integer page, Integer pageSize, HttpServletRequest request) {
         long start = System.currentTimeMillis();
-        String clientIp = resolveClientIp(request);
+        String clientIp = clientIpResolver.resolve(request);
         ApiConsumerContext apiConsumer = (ApiConsumerContext) request.getAttribute(ApiConsumerContext.REQUEST_ATTR);
         String consumerName = apiConsumer != null ? apiConsumer.getName() : "unknown";
         Long consumerId = apiConsumer != null ? apiConsumer.getId() : null;
@@ -102,7 +103,7 @@ public class DynamicApiService {
             logAccess(apiCode, logVersion, clientIp, consumerId, consumerName, authMode, mergedParams, start,
                     0, 0, "ERROR", e.getMessage());
             gatewayMetrics.recordApiRequest(apiCode, "ERROR", System.currentTimeMillis() - start);
-            throw e;
+            throw new BusinessException(500, "数据查询失败，请稍后重试");
         }
     }
 
@@ -146,31 +147,10 @@ public class DynamicApiService {
         if (pageSize < 1) {
             throw new BusinessException("分页参数 pageSize 必须 >= 1");
         }
-        int maxPageSize = intConfig(config, "maxPageSize", 500);
+        int maxPageSize = ResponseConfigHelper.intConfig(config, "maxPageSize", 500);
         if (pageSize > maxPageSize) {
             throw new BusinessException("分页参数 pageSize 不能超过 " + maxPageSize);
         }
         return new PaginationParams(page, pageSize);
-    }
-
-    private int intConfig(Map<String, Object> config, String key, int defaultValue) {
-        if (config == null) {
-            return defaultValue;
-        }
-        Object v = config.get(key);
-        if (v instanceof Number n) {
-            return n.intValue();
-        }
-        return defaultValue;
-    }
-
-    private String resolveClientIp(HttpServletRequest request) {
-        if (securityProperties.isTrustForwardedFor()) {
-            String xff = request.getHeader("X-Forwarded-For");
-            if (xff != null && !xff.isBlank()) {
-                return xff.split(",")[0].trim();
-            }
-        }
-        return request.getRemoteAddr();
     }
 }

@@ -2,6 +2,8 @@ package com.apigateway.service;
 
 import com.apigateway.exception.BusinessException;
 
+import com.apigateway.util.SqlParamPatterns;
+
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -9,7 +11,7 @@ import java.util.regex.Pattern;
 
 public final class ParamSchemaValidator {
 
-    private static final Pattern NAMED_PARAM = Pattern.compile(":([a-zA-Z_][a-zA-Z0-9_]*)");
+    private static final Pattern NAMED_PARAM = SqlParamPatterns.NAMED_PARAM;
 
     private ParamSchemaValidator() {
     }

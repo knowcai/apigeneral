@@ -5,11 +5,7 @@
       <el-input v-model="apiCode" :placeholder="t('log.filterApi')" style="width: 180px" clearable @clear="reload" />
       <el-select v-model="status" :placeholder="t('log.filterStatus')" clearable style="width: 140px" @clear="reload">
         <el-option :label="t('log.allStatus')" value="" />
-        <el-option label="SUCCESS" value="SUCCESS" />
-        <el-option label="RATE_LIMITED" value="RATE_LIMITED" />
-        <el-option label="CIRCUIT_OPEN" value="CIRCUIT_OPEN" />
-        <el-option label="FORBIDDEN" value="FORBIDDEN" />
-        <el-option label="ERROR" value="ERROR" />
+        <el-option v-for="s in statusOptions" :key="s" :label="statusLabel(s)" :value="s" />
       </el-select>
       <el-input v-model="consumerName" :placeholder="t('log.filterConsumer')" style="width: 160px" clearable @clear="reload" />
       <el-date-picker
@@ -27,11 +23,13 @@
       <el-table-column :label="t('col.time')" width="180">
         <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column prop="apiCode" label="API" width="140" />
+      <el-table-column prop="apiCode" :label="t('col.code')" width="140" />
       <el-table-column prop="apiVersion" :label="t('col.version')" width="70" />
       <el-table-column prop="consumerName" :label="t('col.consumer')" width="120" />
       <el-table-column prop="clientIp" :label="t('col.ip')" width="130" />
-      <el-table-column prop="status" :label="t('col.status')" width="110" />
+      <el-table-column :label="t('col.status')" width="110">
+        <template #default="{ row }">{{ statusLabel(row.status) }}</template>
+      </el-table-column>
       <el-table-column prop="responseRows" :label="t('col.rows')" width="80" />
       <el-table-column :label="t('col.durationSec')" width="90">
         <template #default="{ row }">{{ formatDurationSec(row.durationMs) }}</template>
@@ -48,7 +46,6 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
-import { auth } from '../stores/auth'
 
 const { t } = useI18n()
 const logs = ref<any[]>([])
@@ -59,6 +56,13 @@ const timeRange = ref<[string, string] | null>(null)
 const page = ref(1)
 const size = 20
 const total = ref(0)
+const statusOptions = ['SUCCESS', 'RATE_LIMITED', 'CIRCUIT_OPEN', 'FORBIDDEN', 'ERROR']
+
+function statusLabel(status: string) {
+  const key = `log.status.${status}`
+  const translated = t(key)
+  return translated === key ? status : translated
+}
 
 function queryParams(forExport = false) {
   const params: Record<string, string | number | undefined> = {
@@ -89,9 +93,13 @@ function formatDurationSec(ms: number | null | undefined) {
 }
 
 async function load() {
-  const data = await http.get<{ content: any[]; totalElements: number }>('/admin/logs', { params: queryParams() })
-  logs.value = data.content
-  total.value = data.totalElements
+  try {
+    const data = await http.get<{ content: any[]; totalElements: number }>('/admin/logs', { params: queryParams() })
+    logs.value = data.content
+    total.value = data.totalElements
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 function reload() {
@@ -100,27 +108,17 @@ function reload() {
 }
 
 async function exportCsv() {
-  const token = auth.getToken()
-  const qs = new URLSearchParams()
-  const params = queryParams(true)
-  Object.entries(params).forEach(([k, v]) => {
-    if (v != null && v !== '') qs.set(k, String(v))
-  })
-  const res = await fetch(`/admin/logs/export?${qs}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  })
-  if (!res.ok) {
-    ElMessage.error(await res.text())
-    return
+  try {
+    const qs = new URLSearchParams()
+    const params = queryParams(true)
+    Object.entries(params).forEach(([k, v]) => {
+      if (v != null && v !== '') qs.set(k, String(v))
+    })
+    await http.download(`/admin/logs/export?${qs}`, 'access-logs.csv')
+    ElMessage.success(t('log.exportOk'))
+  } catch (e: any) {
+    ElMessage.error(e.message)
   }
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'access-logs.csv'
-  a.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success(t('log.exportOk'))
 }
 
 onMounted(load)

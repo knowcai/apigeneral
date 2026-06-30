@@ -21,9 +21,15 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler({AccessDeniedException.class, AuthenticationCredentialsNotFoundException.class})
+    @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ApiResponse<Void> handleUnauthenticated(AuthenticationCredentialsNotFoundException ex) {
+        return ApiResponse.fail(401, "未登录");
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
-    public ApiResponse<Void> handleAccessDenied(Exception ex) {
+    public ApiResponse<Void> handleAccessDenied(AccessDeniedException ex) {
         return ApiResponse.fail(403, "无权访问");
     }
 
@@ -79,19 +85,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Object>> handleBusiness(BusinessException ex) {
         HttpStatus status = mapStatus(ex.getCode());
-        ApiResponse<Object> body = new ApiResponse<>(ex.getCode(), ex.getMessage(), ex.getData(), currentRequestId());
-        body.setRequestId(currentRequestId());
-        return ResponseEntity.status(status).body(body);
+        return ResponseEntity.status(status)
+                .body(new ApiResponse<>(ex.getCode(), ex.getMessage(), ex.getData(), currentRequestId()));
     }
 
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleOther(Exception ex) {
-        String message = ex.getMessage();
-        if (message == null || message.isBlank()) {
-            message = "服务器内部错误，请稍后重试";
-        }
-        ApiResponse<Void> body = ApiResponse.fail(message);
+        ApiResponse<Void> body = ApiResponse.fail("服务器内部错误，请稍后重试");
         body.setRequestId(currentRequestId());
         return body;
     }
@@ -111,6 +112,7 @@ public class GlobalExceptionHandler {
             case 429 -> HttpStatus.TOO_MANY_REQUESTS;
             case 202 -> HttpStatus.ACCEPTED;
             case 503 -> HttpStatus.SERVICE_UNAVAILABLE;
+            case 500 -> HttpStatus.INTERNAL_SERVER_ERROR;
             default -> HttpStatus.BAD_REQUEST;
         };
     }

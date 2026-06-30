@@ -16,6 +16,11 @@ public class GatewayPolicyService {
     private final AuthzService authzService;
     private final AuditLogService auditLogService;
 
+    public GatewayPolicy getForAdmin() {
+        authzService.requireAuthenticated();
+        return get();
+    }
+
     /** 运行时策略读取（限流/熔断），公开数据 API 也会调用，不做登录校验。 */
     public GatewayPolicy get() {
         return repository.findById(1L).orElseGet(this::initDefault);

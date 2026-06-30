@@ -78,7 +78,7 @@
         </el-form-item>
 
         <template v-if="form.type === 'TRINO'">
-          <el-form-item label="Schema"><el-input v-model="params.schema" /></el-form-item>
+          <el-form-item :label="t('datasource.schema')"><el-input v-model="params.schema" /></el-form-item>
           <el-form-item :label="t('datasource.queryTimeoutSec')">
             <el-input-number v-model="params.queryTimeoutSec" :min="1" />
           </el-form-item>
@@ -101,8 +101,8 @@
       </el-form>
       <template #footer>
         <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
-        <el-button :loading="testing" @click="testFormConn">{{ t('datasource.testConn') }}</el-button>
-        <el-button type="primary" @click="save">{{ t('common.save') }}</el-button>
+        <el-button v-if="auth.canEditDatasource.value || !form.id" :loading="testing" @click="testFormConn">{{ t('datasource.testConn') }}</el-button>
+        <el-button v-if="auth.canEditDatasource.value || !form.id" type="primary" @click="save">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -114,6 +114,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http, { isApprovalResult } from '../api/http'
 import { auth } from '../stores/auth'
+import { themeName as lookupThemeName } from '../utils/theme'
 
 const { t } = useI18n()
 
@@ -215,8 +216,7 @@ async function load() {
 }
 
 function themeName(themeId?: number) {
-  if (themeId == null) return '-'
-  return themes.value.find(t => t.id === themeId)?.name ?? '-'
+  return lookupThemeName(themes.value, themeId) || '-'
 }
 
 async function loadTemplate() {

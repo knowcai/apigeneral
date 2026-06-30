@@ -6,18 +6,18 @@ export function notifyApprovalResult(
   result: unknown,
   fallback: string,
   t: (key: string) => string,
-  router?: Router
+  router?: Router,
+  navigateToApprovals = false
 ) {
   if (isApprovalResult(result)) {
     ElMessage({
       type: 'success',
       message: `${result.message} ${t('approval.viewCenterHint')}`,
       duration: 5000,
-      showClose: true,
-      onClose: () => {}
+      showClose: true
     })
-    if (router) {
-      setTimeout(() => router.push('/approvals'), 300)
+    if (router && navigateToApprovals) {
+      router.push('/approvals')
     }
     return true
   }

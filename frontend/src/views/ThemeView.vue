@@ -285,7 +285,7 @@ async function createKey() {
     })
     await ElMessageBox.confirm(t('theme.apiKeyCreateConfirm'), t('common.confirm'), { type: 'info' })
     const result = await http.post(`/admin/themes/${currentTheme.value.id}/api-keys`, { name: name.trim(), status: 'ACTIVE' })
-    if (notifyApprovalResult(result, t('theme.apiKeyApprovalSubmitted'), t, router)) {
+    if (notifyApprovalResult(result, t('theme.apiKeyApprovalSubmitted'), t)) {
       await loadKeys(currentTheme.value.id)
       await load()
       return
@@ -303,7 +303,7 @@ async function deleteKey(row: any) {
   try {
     await ElMessageBox.confirm(t('theme.apiKeyDeleteConfirm'), t('common.confirm'), { type: 'warning' })
     const result = await http.delete(`/admin/themes/${currentTheme.value.id}/api-keys/${row.id}`)
-    if (notifyApprovalResult(result, t('theme.apiKeyApprovalSubmitted'), t, router)) {
+    if (notifyApprovalResult(result, t('theme.apiKeyApprovalSubmitted'), t)) {
       await loadKeys(currentTheme.value.id)
       await load()
       return
@@ -389,7 +389,10 @@ async function saveTheme() {
     try {
       const impact = await http.get<{ apiCount: number }>(`/admin/themes/${form.id}/impact`)
       await ElMessageBox.confirm(t('theme.disableConfirmWithApis', { count: impact.apiCount ?? 0 }), t('common.confirm'), { type: 'warning' })
-    } catch { return }
+    } catch (e: any) {
+      if (e !== 'cancel') ElMessage.error(e?.message || t('common.operationFailed'))
+      return
+    }
   }
   const adminIds = form.themeAdminIds.map(Number).filter((id: number) => !form.memberIds.map(Number).includes(id))
   const payload = { name: form.name.trim(), description: form.description, enabled: form.enabled, members: adminIds.map((userId: number) => ({ userId, role: 'THEME_ADMIN' })) }

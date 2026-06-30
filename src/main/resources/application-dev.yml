@@ -19,6 +19,9 @@ gateway:
   consumer:
     bootstrap-key: ""
     legacy-enabled: false
+  security:
+    swagger-public: true
+    actuator-public: true
 
 logging:
   level:

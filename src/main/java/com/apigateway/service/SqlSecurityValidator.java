@@ -30,27 +30,10 @@ public final class SqlSecurityValidator {
             }
             Statement statement = statements.get(0);
             if (!(statement instanceof Select)) {
-                throw new BusinessException("仅允许 SELECT 只读查询（解析器校验）");
+                throw new BusinessException("仅允许 SELECT / WITH 只读查询");
             }
         } catch (JSQLParserException e) {
-            if (isAllowedNonSelectPrefix(normalized)) {
-                validateLegacyPrefix(normalized);
-                return;
-            }
-            throw new BusinessException("SQL 解析失败，请检查语法: " + e.getMessage());
-        }
-    }
-
-    private static boolean isAllowedNonSelectPrefix(String sql) {
-        return sql.regionMatches(true, 0, "SHOW", 0, 4)
-                || sql.regionMatches(true, 0, "DESC", 0, 4)
-                || sql.regionMatches(true, 0, "DESCRIBE", 0, 8)
-                || sql.regionMatches(true, 0, "EXPLAIN", 0, 7);
-    }
-
-    private static void validateLegacyPrefix(String sql) {
-        if (!isAllowedNonSelectPrefix(sql)) {
-            throw new BusinessException("仅允许 SELECT/WITH/SHOW/DESC/EXPLAIN 语句");
+            throw new BusinessException("SQL 解析失败，请检查语法");
         }
     }
 }

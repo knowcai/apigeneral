@@ -47,8 +47,8 @@ gateway:
     acquire-timeout-ms: 5000
     replica-count: 1
   security:
-    swagger-public: true
-    actuator-public: true
+    swagger-public: false
+    actuator-public: false
     cors-allowed-origins:
       - http://localhost:5173
       - http://localhost:8080

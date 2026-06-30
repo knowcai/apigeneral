@@ -4,6 +4,7 @@ import com.apigateway.datasource.DatasourceDriverRegistry;
 import com.apigateway.dto.QueryResult;
 import com.apigateway.entity.Datasource;
 import com.apigateway.exception.BusinessException;
+import com.apigateway.util.ResponseConfigHelper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -23,13 +24,13 @@ public class SqlExecutionService {
         SqlTemplateEngine.ParsedSql parsed = SqlTemplateEngine.parse(sqlTemplate, params);
         List<Object> values = SqlTemplateEngine.bindValues(parsed, params);
 
-        int effectivePageSize = Math.min(pageSize, intConfig(responseConfig, "maxPageSize", 500));
+        int effectivePageSize = Math.min(pageSize, ResponseConfigHelper.intConfig(responseConfig, "maxPageSize", 500));
         int offset = Math.max(0, page - 1) * effectivePageSize;
         assertWithinLimits(responseConfig, offset);
 
         String pagedSql = driverRegistry.require(datasource.getType())
                 .wrapPagedSql(parsed.sql(), offset, effectivePageSize);
-        int timeoutSec = intConfig(responseConfig, "timeoutSec", 60);
+        int timeoutSec = ResponseConfigHelper.intConfig(responseConfig, "timeoutSec", 60);
         long total = countTotal(datasource, parsed.sql(), values, timeoutSec);
 
         try (Connection conn = connectionPoolManager.getConnection(datasource.getId());
@@ -53,7 +54,7 @@ public class SqlExecutionService {
             if (isQueryTimeout(e)) {
                 throw new BusinessException("查询超时，超过 " + timeoutSec + " 秒限制");
             }
-            throw new BusinessException("SQL 执行失败: " + e.getMessage());
+            throw new BusinessException("SQL 执行失败，请检查 SQL 与参数");
         }
     }
 
@@ -88,7 +89,7 @@ public class SqlExecutionService {
             if (isQueryTimeout(e)) {
                 throw new BusinessException("试跑超时，超过 " + effectiveTimeout + " 秒限制");
             }
-            throw new BusinessException("试跑失败: " + e.getMessage());
+            throw new BusinessException("试跑失败，请检查 SQL 与参数");
         }
     }
 
@@ -109,7 +110,7 @@ public class SqlExecutionService {
             if (isQueryTimeout(e)) {
                 throw new BusinessException("统计总数超时，超过 " + timeoutSec + " 秒限制");
             }
-            throw new BusinessException("统计总数失败: " + e.getMessage());
+            throw new BusinessException("统计总数失败，请检查 SQL 与参数");
         }
         return 0;
     }
@@ -130,7 +131,7 @@ public class SqlExecutionService {
     }
 
     private void assertWithinLimits(Map<String, Object> config, int offset) {
-        int maxOffset = intConfig(config, "maxOffset", 100000);
+        int maxOffset = ResponseConfigHelper.intConfig(config, "maxOffset", 100000);
         if (offset >= maxOffset) {
             throw new BusinessException("已超过最大偏移量 " + maxOffset + "，请缩小分页");
         }
@@ -154,16 +155,5 @@ public class SqlExecutionService {
         for (int i = 0; i < values.size(); i++) {
             ps.setObject(i + 1, values.get(i));
         }
-    }
-
-    private int intConfig(Map<String, Object> config, String key, int defaultValue) {
-        if (config == null) {
-            return defaultValue;
-        }
-        Object v = config.get(key);
-        if (v instanceof Number n) {
-            return n.intValue();
-        }
-        return defaultValue;
     }
 }

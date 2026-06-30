@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { auth } from '../stores/auth'
+import { i18n } from '../locales'
 
 const instance = axios.create({ baseURL: '', withCredentials: true })
 
@@ -12,27 +13,32 @@ instance.interceptors.request.use((config) => {
   return config
 })
 
+function t(key: string, fallback: string) {
+  const translated = i18n.global.t(key)
+  return translated === key ? fallback : translated
+}
+
 instance.interceptors.response.use(
   (res) => {
     const body = res.data
     if (body && body.code === 202) {
-      return { __approval: true, message: body.message || '已提交审批' }
+      return { __approval: true, message: body.message || t('approval.submitted', 'Submitted for approval') }
     }
     if (body && body.code !== 0) {
-      return Promise.reject(new Error(body.message || '请求失败'))
+      return Promise.reject(new Error(body.message || t('common.operationFailed', 'Request failed')))
     }
     return body.data
   },
-  (err) => {
+  async (err) => {
     const status = err.response?.status
     const body = err.response?.data
     if (status === 401) {
-      auth.clear()
+      await auth.clear()
       if (!location.pathname.startsWith('/login')) {
         location.href = '/login'
       }
     }
-    const message = body?.message || err.message || '请求失败'
+    const message = body?.message || err.message || t('common.operationFailed', 'Request failed')
     return Promise.reject(new Error(message))
   }
 )
@@ -49,6 +55,30 @@ const http = {
   },
   delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
     return instance.delete(url, config) as Promise<T>
+  },
+  async download(url: string, filename: string): Promise<void> {
+    const token = auth.getToken()
+    const res = await fetch(url, {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+    if (!res.ok) {
+      let message = t('common.operationFailed', 'Request failed')
+      try {
+        const body = await res.json()
+        if (body?.message) message = body.message
+      } catch {
+        // ignore non-json body
+      }
+      throw new Error(message)
+    }
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(objectUrl)
   }
 }
 

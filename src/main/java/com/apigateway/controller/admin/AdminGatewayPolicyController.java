@@ -17,7 +17,7 @@ public class AdminGatewayPolicyController {
 
     @GetMapping
     public ApiResponse<GatewayPolicy> get() {
-        return ApiResponse.ok(gatewayPolicyService.get());
+        return ApiResponse.ok(gatewayPolicyService.getForAdmin());
     }
 
     @PutMapping

@@ -239,6 +239,15 @@ public class ApprovalService {
         }
     }
 
+    /** 主题成员变更后，为进行中的审批单补齐新审批人待办。 */
+    @Transactional
+    public void syncPendingApproverTasksForTheme(Long themeId) {
+        for (ApprovalRequest r : requestRepository.findByThemeIdAndStatusOrderByCreatedAtDesc(
+                themeId, ApprovalStatus.PENDING)) {
+            syncApproverTasks(r);
+        }
+    }
+
     private void syncPendingTasksForUser(Long userId) {
         for (ApprovalRequest r : requestRepository.findByStatusOrderByCreatedAtDesc(ApprovalStatus.PENDING)) {
             if (isEligibleApprover(r, userId)) {

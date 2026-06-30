@@ -149,7 +149,7 @@
           <el-input-number v-model="respConfig.maxOffset" :min="1000" :max="10000000" :step="10000" />
           <div class="hint">{{ t('api.maxOffsetHint') }}</div>
         </el-form-item>
-        <el-form-item :label="t('api.updatedBy')"><el-input v-model="verForm.updatedBy" /></el-form-item>
+        <el-form-item :label="t('api.updatedBy')"><el-input :model-value="currentOperator()" disabled /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="verVisible = false">{{ t('common.cancel') }}</el-button>
@@ -208,6 +208,8 @@ import type { TableInstance } from 'element-plus'
 import http, { isApprovalResult } from '../api/http'
 import { auth } from '../stores/auth'
 import { notifyApprovalResult } from '../utils/approval'
+import { themeName as lookupThemeName } from '../utils/theme'
+import { copyToClipboard } from '../utils/clipboard'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -223,7 +225,6 @@ const PAGE_DEFAULTS: RespConfigForm = { timeoutSec: 60, apiQps: 0, maxPageSize: 
 
 const apis = ref<any[]>([])
 const themes = ref<any[]>([])
-const themeIds = computed(() => themes.value.map(th => th.id))
 const versions = ref<any[]>([])
 const datasources = ref<any[]>([])
 const currentApi = ref<any>(null)
@@ -278,11 +279,10 @@ function buildRespConfig(): Record<string, unknown> {
   }
 }
 
-function canEditApi(row: any) { return auth.canEditApi(row, themeIds.value) }
+function canEditApi(row: any) { return auth.canEditApi(row, themes.value) }
 
 function themeName(themeId?: number) {
-  if (themeId == null) return '-'
-  return themes.value.find(th => th.id === themeId)?.name ?? '-'
+  return lookupThemeName(themes.value, themeId) || '-'
 }
 
 async function loadApis() {
@@ -328,7 +328,7 @@ async function saveDef() {
     }
     defVisible.value = false
     await loadApis()
-    notifyApprovalResult(result, t('common.saved'), t, router)
+    notifyApprovalResult(result, t('common.saved'), t)
   } catch (e: any) { ElMessage.error(e.message) }
 }
 
@@ -337,7 +337,7 @@ async function deleteDef(row: any) {
     await ElMessageBox.confirm(t('api.deleteConfirm', { code: row.apiCode }), t('common.tip'), { type: 'warning' })
     const result = await http.delete(`/admin/apis/${row.id}`)
     await loadApis()
-    notifyApprovalResult(result, t('common.deleted'), t, router)
+    notifyApprovalResult(result, t('common.deleted'), t)
   } catch (e: any) {
     if (e !== 'cancel') ElMessage.error(e.message || t('common.operationFailed'))
   }
@@ -389,13 +389,13 @@ async function saveVersion() {
   } catch {
     return ElMessage.warning(t('api.paramSchemaInvalid'))
   }
-  const payload = { ...verForm, sqlTemplate: sql, responseMode: 'PAGE', responseConfig: buildRespConfig(), paramSchema }
+  const payload = { ...verForm, updatedBy: currentOperator(), sqlTemplate: sql, responseMode: 'PAGE', responseConfig: buildRespConfig(), paramSchema }
   try {
     let result: unknown
     if (verForm.id) result = await http.put(`/admin/apis/versions/${verForm.id}`, payload)
     else result = await http.post(`/admin/apis/${currentApi.value.id}/versions`, payload)
     verVisible.value = false
-    if (isApprovalResult(result)) notifyApprovalResult(result, '', t, router)
+    if (isApprovalResult(result)) notifyApprovalResult(result, '', t)
     else { versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`); ElMessage.success(t('common.saved')) }
   } catch (e: any) { ElMessage.error(e.message) }
 }
@@ -404,7 +404,7 @@ async function publish(row: any) {
   try {
     const result = await http.post(`/admin/apis/versions/${row.id}/publish`)
     versions.value = await http.get(`/admin/apis/${currentApi.value.id}/versions`)
-    if (isApprovalResult(result)) notifyApprovalResult(result, t('api.publishedOk', { ver: row.versionNo }), t, router)
+    if (isApprovalResult(result)) notifyApprovalResult(result, t('api.publishedOk', { ver: row.versionNo }), t)
     else ElMessage.success(t('api.publishedOk', { ver: row.versionNo }))
   } catch (e: any) { ElMessage.error(e.message) }
 }
@@ -460,8 +460,12 @@ function statusTagType(status: string): '' | 'success' | 'info' | 'warning' | 'd
 }
 
 async function showDoc(row: any) {
-  apiDoc.value = await http.get(`/admin/apis/versions/${row.id}/doc`)
-  docVisible.value = true
+  try {
+    apiDoc.value = await http.get(`/admin/apis/versions/${row.id}/doc`)
+    docVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 function openTest(row: any) {
@@ -484,14 +488,17 @@ async function runTest() {
 }
 
 async function showEndpoint(row: any) {
-  const info = await http.get<{ path: string }>(`/admin/apis/versions/${row.id}/endpoint`)
-  endpointPath.value = info.path
-  endpointVisible.value = true
+  try {
+    const info = await http.get<{ path: string }>(`/admin/apis/versions/${row.id}/endpoint`)
+    endpointPath.value = info.path
+    endpointVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 function copyEndpoint() {
-  navigator.clipboard.writeText(endpointPath.value)
-  ElMessage.success(t('common.copied'))
+  copyToClipboard(endpointPath.value, t('common.copied'))
 }
 
 function versionMore(cmd: string, row: any) {

@@ -96,7 +96,8 @@ export default {
     confirmDelete: '确认删除？',
     tip: '提示',
     brandName: 'SQL API Gateway',
-    more: '更多'
+    more: '更多',
+    accessDenied: '无权访问该页面'
   },
   login: {
     tagline: '动态 SQL 数据接口 · 限流熔断 · 版本发布',
@@ -196,6 +197,7 @@ export default {
     confirmReject: '确定驳回该审批？',
     approved: '已通过',
     rejected: '已驳回',
+    submitted: '已提交审批',
     viewCenterHint: '→ 前往审批中心查看',
     actions: {
       CREATE: '新建',
@@ -243,7 +245,8 @@ export default {
     fillHost: '请填写 Host',
     fillDatabase: '请填写数据库',
     saveOk: '保存成功',
-    passwordKeep: '留空则保持原密码（库内已加密存储）'
+    passwordKeep: '留空则保持原密码（库内已加密存储）',
+    schema: 'Schema'
   },
   theme: {
     title: '主题管理',

@@ -72,7 +72,11 @@ function roleLabel(role: UserRole) {
 }
 
 async function load() {
-  users.value = await http.get('/admin/users')
+  try {
+    users.value = await http.get('/admin/users')
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 function openCreate() {

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import MainLayout from '../layout/MainLayout.vue'
 import LoginView from '../views/LoginView.vue'
 import DatasourceView from '../views/DatasourceView.vue'
@@ -13,6 +14,13 @@ import ApprovalView from '../views/ApprovalView.vue'
 import { auth } from '../stores/auth'
 import http from '../api/http'
 import { i18n } from '../locales'
+import type { UserInfo } from '../stores/auth'
+
+function defaultHome() {
+  if (auth.isApiViewer.value) return '/dashboard'
+  if (auth.isApiEditor.value) return '/apis'
+  return '/themes'
+}
 
 const router = createRouter({
   history: createWebHistory(),
@@ -21,7 +29,7 @@ const router = createRouter({
     {
       path: '/',
       component: MainLayout,
-      redirect: '/themes',
+      redirect: () => defaultHome(),
       meta: { requiresAuth: true },
       children: [
         { path: 'datasources', component: DatasourceView, meta: { titleKey: 'datasource.title', requiresEditor: true } },
@@ -40,22 +48,24 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   if (to.path === '/login') {
-    if (auth.state.user) return '/themes'
+    if (auth.state.user) return defaultHome()
     return true
   }
   if (!auth.state.user) {
     try {
-      const user = await http.get('/admin/auth/me')
-      auth.setSession(auth.getToken(), user as any)
+      const user = await http.get<UserInfo>('/admin/auth/me')
+      auth.setSession(auth.getToken(), user)
     } catch {
       return '/login'
     }
   }
   if (to.meta.superAdmin && !auth.isSuperAdmin.value) {
-    return '/themes'
+    ElMessage.warning(i18n.global.t('common.accessDenied'))
+    return defaultHome()
   }
   if (to.meta.requiresEditor && auth.isApiViewer.value) {
-    return '/themes'
+    ElMessage.warning(i18n.global.t('common.accessDenied'))
+    return defaultHome()
   }
   return true
 })

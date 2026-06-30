@@ -24,7 +24,7 @@ const state = reactive({
 
 export const auth = {
   state,
-  isLoggedIn: computed(() => !!state.user || !!state.token),
+  isLoggedIn: computed(() => !!state.user),
   isSuperAdmin: computed(() => state.user?.role === 'SUPER_ADMIN'),
   isApiEditor: computed(() => state.user?.role === 'API_EDITOR'),
   isApiViewer: computed(() => state.user?.role === 'API_VIEWER'),

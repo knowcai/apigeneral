@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { copyToClipboard } from '../utils/clipboard'
 
 const props = defineProps<{
   modelValue: boolean
@@ -32,8 +32,7 @@ const props = defineProps<{
 defineEmits<{ 'update:modelValue': [boolean] }>()
 
 async function copy() {
-  await navigator.clipboard.writeText(props.apiKey)
-  ElMessage.success(props.copiedMessage || 'OK')
+  await copyToClipboard(props.apiKey, props.copiedMessage || 'OK')
 }
 </script>
 

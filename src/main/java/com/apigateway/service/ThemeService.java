@@ -2,6 +2,7 @@ package com.apigateway.service;
 
 import com.apigateway.dto.*;
 import com.apigateway.entity.ApprovalAction;
+import com.apigateway.entity.ApprovalRequest;
 import com.apigateway.entity.ApprovalResourceType;
 import com.apigateway.entity.ApprovalStatus;
 import com.apigateway.entity.ApprovalTask;
@@ -19,10 +20,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.LinkedHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -113,6 +115,7 @@ public class ThemeService {
         }
         Theme saved = themeRepository.save(theme);
         saveThemeAdmins(saved.getId(), req.getMembers());
+        syncPendingApproverTasksForTheme(saved.getId());
         auditLogService.log("UPDATE", "THEME", String.valueOf(saved.getId()), saved.getCode(), saved);
         return toResponse(saved);
     }
@@ -386,5 +389,43 @@ public class ThemeService {
         return membershipRepository.findByThemeIdAndUserId(themeId, authzService.currentUserId())
                 .map(ThemeMembership::getRole)
                 .orElse(null);
+    }
+
+    private void syncPendingApproverTasksForTheme(Long themeId) {
+        for (ApprovalRequest request : approvalRequestRepository.findByThemeIdAndStatusOrderByCreatedAtDesc(
+                themeId, ApprovalStatus.PENDING)) {
+            List<Long> approverIds = listApproverIds(request.getThemeId(), request.getSubmitterId());
+            List<ApprovalTask> existing = approvalTaskRepository.findByRequestIdOrderByStepOrderAscSortOrderAsc(
+                    request.getId());
+            Set<Long> existingAssignees = existing.stream()
+                    .map(ApprovalTask::getAssigneeId)
+                    .collect(Collectors.toSet());
+            int maxSort = existing.stream().mapToInt(ApprovalTask::getSortOrder).max().orElse(-1);
+            for (Long approverId : approverIds) {
+                if (existingAssignees.contains(approverId)) {
+                    continue;
+                }
+                ApprovalTask task = new ApprovalTask();
+                task.setRequestId(request.getId());
+                task.setStepOrder(1);
+                task.setAssigneeId(approverId);
+                task.setSortOrder(++maxSort);
+                task.setStatus(ApprovalStatus.PENDING);
+                approvalTaskRepository.save(task);
+            }
+        }
+    }
+
+    private List<Long> listApproverIds(Long themeId, Long submitterId) {
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        membershipRepository.findByThemeId(themeId).stream()
+                .filter(m -> m.getRole() == ThemeMembershipRole.THEME_ADMIN)
+                .map(ThemeMembership::getUserId)
+                .filter(uid -> !uid.equals(submitterId))
+                .forEach(ids::add);
+        userRepository.findByRoleAndEnabled(UserRole.SUPER_ADMIN, true).stream()
+                .map(SysUser::getId)
+                .forEach(ids::add);
+        return List.copyOf(ids);
     }
 }

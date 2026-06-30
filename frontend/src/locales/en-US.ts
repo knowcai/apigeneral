@@ -94,7 +94,10 @@ export default {
     operationFailed: 'Operation failed',
     selectTheme: 'Please select a theme',
     confirmDelete: 'Confirm delete?',
-    tip: 'Tip'
+    tip: 'Tip',
+    brandName: 'SQL API Gateway',
+    more: 'More',
+    accessDenied: 'You do not have permission to access this page'
   },
   login: {
     tagline: 'Dynamic SQL APIs · Rate limit · Versioning',
@@ -108,7 +111,8 @@ export default {
     submit: 'Sign in',
     hint: 'Default account on first start: admin / admin123',
     needCredentials: 'Please enter username and password',
-    success: 'Signed in'
+    success: 'Signed in',
+    console: 'Management Console'
   },
   dashboard: {
     title: 'Monitoring Dashboard',
@@ -151,7 +155,13 @@ export default {
     callsCol: 'Calls',
     statusCol: 'Status',
     countCol: 'Count',
-    hourCol: 'Hour'
+    hourCol: 'Hour',
+    scopedHint: 'Showing data for themes you can access',
+    legacyKeyCalls: 'Legacy key call share',
+    legacySunset: 'Sunset planned',
+    circuitOpen: 'Open',
+    circuitHalfOpen: 'Half-open',
+    circuitClosed: 'Closed'
   },
   approval: {
     title: 'Approval Center',
@@ -167,6 +177,7 @@ export default {
     hintHistory: 'Approved and rejected requests for audit trail.',
     emptyMine: 'No pending approval tasks',
     emptyHistory: 'No approval history yet',
+    emptyPending: 'No in-progress approvals',
     detailTitle: 'Approval detail',
     payloadTitle: 'Change payload',
     diff: 'Changes',
@@ -186,6 +197,8 @@ export default {
     confirmReject: 'Reject this request?',
     approved: 'Approved',
     rejected: 'Rejected',
+    submitted: 'Submitted for approval',
+    viewCenterHint: '→ View in Approval Center',
     actions: {
       CREATE: 'Create',
       UPDATE: 'Update',
@@ -232,10 +245,12 @@ export default {
     fillHost: 'Please enter Host',
     fillDatabase: 'Please enter database',
     saveOk: 'Saved',
-    passwordKeep: 'Leave blank to keep existing password (stored encrypted)'
+    passwordKeep: 'Leave blank to keep existing password (stored encrypted)',
+    schema: 'Schema'
   },
   theme: {
     title: 'Themes',
+    needApproval: 'Member changes require theme admin approval',
     create: 'New theme',
     edit: 'Edit theme',
     manageMembers: 'Manage members',
@@ -309,20 +324,25 @@ export default {
     timeRange: 'Time range',
     export: 'Export CSV',
     exportOk: 'Export started',
-    allStatus: 'All statuses'
+    allStatus: 'All statuses',
+    status: {
+      SUCCESS: 'Success',
+      ERROR: 'Error',
+      RATE_LIMITED: 'Rate limited',
+      CIRCUIT_OPEN: 'Circuit open',
+      FORBIDDEN: 'Forbidden'
+    }
   },
   audit: {
     title: 'Audit Log',
     tabAll: 'All events',
     tabKeyRotation: 'Key create / delete',
-    keyRotationHint: 'Theme API key create and delete events.',
-    keyCreate: 'Create key',
-    keyDelete: 'Delete key',
     keyRotationHint: 'Theme API key lifecycle; "Via approval" means applied after approval.',
     keyAction: 'Action',
     keyViaApproval: 'Via approval',
     keyDirect: 'Direct',
     keyCreate: 'Create key',
+    keyDelete: 'Delete key',
     keyRotate: 'Rotate key'
   },
   policy: {
@@ -375,6 +395,9 @@ export default {
   },
   api: {
     title: 'API / SQL',
+    needApproval: 'Changes require theme admin approval',
+    endpointTitle: 'API endpoint',
+    emptyApiList: 'No APIs yet — click Create above',
     create: 'New API',
     listTitle: 'API list',
     total: '{n} total',

@@ -51,6 +51,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import http from '../api/http'
 
 const { t } = useI18n()
@@ -64,19 +65,27 @@ const total = ref(0)
 const keyTotal = ref(0)
 
 async function loadAll() {
-  const data = await http.get<any>(`/admin/audit-logs?page=${page.value - 1}&size=${size}`)
-  logs.value = data.content
-  total.value = data.totalElements
+  try {
+    const data = await http.get<any>(`/admin/audit-logs?page=${page.value - 1}&size=${size}`)
+    logs.value = data.content
+    total.value = data.totalElements
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 async function loadKeys() {
-  const data = await http.get<any>(`/admin/audit-logs/theme-api-keys?page=${keyPage.value - 1}&size=${size}`)
-  keyEvents.value = data.content
-  keyTotal.value = data.totalElements
+  try {
+    const data = await http.get<any>(`/admin/audit-logs/theme-api-keys?page=${keyPage.value - 1}&size=${size}`)
+    keyEvents.value = data.content
+    keyTotal.value = data.totalElements
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
 }
 
 watch(tab, (v) => {
-  if (v === 'keys' && !keyEvents.value.length) loadKeys()
+  if (v === 'keys') loadKeys()
 })
 
 onMounted(loadAll)

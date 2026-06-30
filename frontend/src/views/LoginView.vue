@@ -20,7 +20,7 @@
           <p>{{ t('login.subtitle') }}</p>
         </header>
 
-        <el-form class="login-form" :model="form" size="large" @submit.prevent="submit">
+        <el-form class="login-form" :model="form" size="large" label-width="80px" @submit.prevent="submit">
           <el-form-item :label="t('login.username')">
             <el-input v-model="form.username" autocomplete="username" :prefix-icon="User" />
           </el-form-item>
@@ -39,9 +39,15 @@
           </el-button>
         </el-form>
 
-        <div class="login-hint">
+        <div v-if="!isProd" class="login-hint">
           <el-icon><InfoFilled /></el-icon>
           <span>{{ t('login.hint') }}</span>
+        </div>
+        <div class="login-locale">
+          <el-select v-model="locale" size="small" :aria-label="t('nav.language')" @change="onLocaleChange">
+            <el-option :label="t('nav.localeZh')" value="zh-CN" />
+            <el-option :label="t('nav.localeEn')" value="en-US" />
+          </el-select>
         </div>
       </div>
     </main>
@@ -56,11 +62,24 @@ import { ElMessage } from 'element-plus'
 import { User, Lock, InfoFilled } from '@element-plus/icons-vue'
 import http from '../api/http'
 import { auth, type UserInfo } from '../stores/auth'
+import { setLocale } from '../locales'
 
-const { t } = useI18n()
+const { t, locale: i18nLocale } = useI18n()
 const router = useRouter()
 const loading = ref(false)
 const form = reactive({ username: '', password: '' })
+const locale = ref(i18nLocale.value as string)
+const isProd = import.meta.env.PROD
+
+function onLocaleChange(lang: string) {
+  setLocale(lang as 'zh-CN' | 'en-US')
+}
+
+function homeAfterLogin() {
+  if (auth.isApiViewer.value) return '/dashboard'
+  if (auth.isApiEditor.value) return '/apis'
+  return '/themes'
+}
 
 async function submit() {
   if (!form.username.trim() || !form.password) {
@@ -72,7 +91,7 @@ async function submit() {
     const data = await http.post<{ token: string; user: UserInfo }>('/admin/auth/login', form)
     auth.setSession(data.token, data.user)
     ElMessage.success(t('login.success'))
-    router.replace('/themes')
+    router.replace(homeAfterLogin())
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
@@ -106,10 +125,13 @@ async function submit() {
 .panel-header h1 { margin: 0 0 8px; font-size: 28px; font-weight: 600; letter-spacing: -0.03em; color: var(--bw-black); }
 .panel-header p { margin: 0; font-size: 14px; color: var(--bw-gray-500); }
 .login-form :deep(.el-form-item) { margin-bottom: 20px; }
+.login-form :deep(.el-form-item__label) { justify-content: flex-end; padding-right: 12px; }
 .login-form :deep(.el-input__wrapper) { padding: 4px 12px; border-radius: 0; }
 .login-btn { width: 100%; height: 44px; margin-top: 8px; font-size: 15px; font-weight: 600; letter-spacing: 0.04em; border-radius: 0; }
 .login-hint { display: flex; align-items: flex-start; gap: 8px; margin-top: 28px; padding: 12px 14px; background: var(--bw-gray-100); border: 1px solid var(--bw-gray-200); font-size: 12px; line-height: 1.6; color: var(--bw-gray-500); }
 .login-hint .el-icon { flex-shrink: 0; margin-top: 2px; font-size: 14px; color: var(--bw-gray-700); }
+.login-locale { margin-top: 20px; }
+.login-locale .el-select { width: 100%; }
 @media (max-width: 768px) {
   .login-page { flex-direction: column; }
   .login-brand { flex: none; max-width: none; min-height: auto; padding: 32px 24px; }

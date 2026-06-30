@@ -3,15 +3,15 @@
     <el-aside width="220px" class="aside">
       <div class="logo">{{ t('common.brandName') }}</div>
       <el-menu :default-active="route.path" router class="side-menu">
-        <el-menu-item index="/themes">
+        <el-menu-item index="/themes" :aria-label="t('nav.themes')">
           <el-icon><Folder /></el-icon>
           <span>{{ t('nav.themes') }}</span>
         </el-menu-item>
-        <el-menu-item index="/datasources">
+        <el-menu-item v-if="!auth.isApiViewer.value" index="/datasources">
           <el-icon><Connection /></el-icon>
           <span>{{ t('nav.datasources') }}</span>
         </el-menu-item>
-        <el-menu-item index="/apis">
+        <el-menu-item v-if="!auth.isApiViewer.value" index="/apis">
           <el-icon><Document /></el-icon>
           <span>{{ t('nav.apis') }}</span>
         </el-menu-item>
@@ -66,6 +66,7 @@ import { useI18n } from 'vue-i18n'
 import { auth } from '../stores/auth'
 import { setLocale } from '../locales'
 import { registerApprovalPendingRefresh } from '../utils/approvalPending'
+import { roleLabelKey } from '../utils/role'
 import http from '../api/http'
 
 const route = useRoute()
@@ -76,11 +77,10 @@ const pendingCount = ref(0)
 let pendingTimer: ReturnType<typeof setInterval> | null = null
 let unregisterPendingRefresh: (() => void) | null = null
 
-const roleLabel = computed(() => {
-  const r = auth.state.user?.role
-  if (r === 'SUPER_ADMIN') return t('role.superAdmin')
-  if (r === 'API_VIEWER') return t('role.viewer')
-  return t('role.user')
+const roleLabel = computed(() => t(roleLabelKey(auth.state.user?.role)))
+
+watch(i18nLocale, (lang) => {
+  locale.value = lang as string
 })
 
 async function refreshPendingCount() {
